@@ -1022,19 +1022,15 @@ with tabs[0]:
                             secondary_y=True
                         )
                         
-                        # Update layout
+                        # UPDATED: Update layout without yaxis2 in the main call
                         fig.update_layout(
                             title="Publication Types by Year (Top 5)",
                             barmode='stack',
                             height=500,
+                            xaxis_title="Year",
                             yaxis=dict(
                                 title="Percentage (%)",
                                 range=[0, 100]
-                            ),
-                            yaxis2=dict(
-                                title="Total Publications",
-                                titlefont=dict(color="red"),
-                                tickfont=dict(color="red")
                             ),
                             legend=dict(
                                 orientation="h",
@@ -1043,6 +1039,14 @@ with tabs[0]:
                                 xanchor="right",
                                 x=1
                             )
+                        )
+                        
+                        # ADDED: Update secondary y-axis separately
+                        fig.update_yaxes(
+                            title_text="Total Publications", 
+                            secondary_y=True,
+                            titlefont=dict(color="red"),
+                            tickfont=dict(color="red")
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
@@ -1160,19 +1164,15 @@ with tabs[0]:
                             secondary_y=True
                         )
                         
-                        # Update layout
+                        # UPDATED: Update layout without yaxis2 in the main call
                         fig.update_layout(
                             title="Funding Sources by Year (Top 5)",
                             barmode='stack',
                             height=500,
+                            xaxis_title="Year",
                             yaxis=dict(
                                 title="Percentage (%)",
                                 range=[0, 100]
-                            ),
-                            yaxis2=dict(
-                                title="Total Publications",
-                                titlefont=dict(color="red"),
-                                tickfont=dict(color="red")
                             ),
                             legend=dict(
                                 orientation="h",
@@ -1181,6 +1181,14 @@ with tabs[0]:
                                 xanchor="right",
                                 x=1
                             )
+                        )
+                        
+                        # ADDED: Update secondary y-axis separately
+                        fig.update_yaxes(
+                            title_text="Total Publications", 
+                            secondary_y=True,
+                            titlefont=dict(color="red"),
+                            tickfont=dict(color="red")
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
@@ -1298,19 +1306,15 @@ with tabs[0]:
                             secondary_y=True
                         )
                         
-                        # Update layout
+                        # UPDATED: Update layout without yaxis2 in the main call
                         fig.update_layout(
                             title="Study Designs by Year (Top 5)",
                             barmode='stack',
                             height=500,
+                            xaxis_title="Year",
                             yaxis=dict(
                                 title="Percentage (%)",
                                 range=[0, 100]
-                            ),
-                            yaxis2=dict(
-                                title="Total Publications",
-                                titlefont=dict(color="red"),
-                                tickfont=dict(color="red")
                             ),
                             legend=dict(
                                 orientation="h",
@@ -1319,6 +1323,14 @@ with tabs[0]:
                                 xanchor="right",
                                 x=1
                             )
+                        )
+                        
+                        # ADDED: Update secondary y-axis separately
+                        fig.update_yaxes(
+                            title_text="Total Publications", 
+                            secondary_y=True,
+                            titlefont=dict(color="red"),
+                            tickfont=dict(color="red")
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
