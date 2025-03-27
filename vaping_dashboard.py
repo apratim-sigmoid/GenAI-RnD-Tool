@@ -1842,7 +1842,7 @@ with tabs[0]:
                             for i, (country, count) in enumerate(sorted_countries[:12], 1):
                                 # Calculate percentile rank
                                 table_data.append({
-                                    "Rank": i,
+                                    "Sr. No.": i,
                                     "Country": country,
                                     "Studies": count
                                 })
