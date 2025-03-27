@@ -6,6 +6,11 @@ from plotly.subplots import make_subplots
 from PIL import Image
 from openai import OpenAI
 
+from pyecharts import options as opts
+from pyecharts.charts import Sunburst
+from pyecharts.globals import ThemeType
+import tempfile
+import os
 
 # Page config
 st.set_page_config(
@@ -609,6 +614,288 @@ def on_sample_size_change():
 def on_enable_sample_size_change():
     st.session_state.enable_sample_size = st.session_state.enable_sample_size_checkbox
 
+
+def generate_pyecharts_sunburst_data(df, matching_docs):
+    """
+    Generate hierarchical data structure for pyecharts sunburst chart
+    from filtered matching_docs, showing top 5 from each hierarchy level:
+    publication type, study design, and funding source
+    """
+    # Extract data from filtered documents
+    pub_types = {}
+    study_designs = {}
+    funding_sources = {}
+    
+    # Get rows for each category
+    pub_type_rows = df[df['Category'] == 'publication_type']
+    study_design_rows = df[df['SubCategory'] == 'primary_type']
+    funding_rows = df[df['SubCategory'] == 'type']
+    
+    # Track document relationships between categories
+    relationships = {}
+    
+    # Count occurrences and track relationships
+    for doc_col in matching_docs:
+        # Extract publication type
+        if not pub_type_rows.empty:
+            try:
+                pub_type = pub_type_rows[doc_col].iloc[0]
+                if pub_type and not pd.isna(pub_type):
+                    pub_types[pub_type] = pub_types.get(pub_type, 0) + 1
+                    
+                    # Extract study design for this document
+                    if not study_design_rows.empty:
+                        try:
+                            design = study_design_rows[doc_col].iloc[0]
+                            if design and not pd.isna(design):
+                                study_designs[design] = study_designs.get(design, 0) + 1
+                                
+                                # Create relationship key
+                                rel_key = f"{pub_type}|{design}"
+                                if rel_key not in relationships:
+                                    relationships[rel_key] = {'count': 0, 'funding': {}}
+                                relationships[rel_key]['count'] += 1
+                                
+                                # Extract funding source for this document
+                                if not funding_rows.empty:
+                                    try:
+                                        funding = funding_rows[doc_col].iloc[0]
+                                        if funding and not pd.isna(funding):
+                                            funding_sources[funding] = funding_sources.get(funding, 0) + 1
+                                            
+                                            # Add to relationship
+                                            if funding not in relationships[rel_key]['funding']:
+                                                relationships[rel_key]['funding'][funding] = 0
+                                            relationships[rel_key]['funding'][funding] += 1
+                                    except (IndexError, KeyError):
+                                        pass
+                        except (IndexError, KeyError):
+                            pass
+            except (IndexError, KeyError):
+                pass
+    
+    # Get top 5 from each category
+    top_pub_types = sorted(pub_types.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_study_designs = sorted(study_designs.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_funding_sources = sorted(funding_sources.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    # Create sets for quick lookup
+    top_pub_type_names = {pt[0] for pt in top_pub_types}
+    top_design_names = {d[0] for d in top_study_designs}
+    top_funding_names = {f[0] for f in top_funding_sources}
+    
+    # Custom color scheme with Imperial Brands orange as the base
+    colors = ['#FF7417', '#FF8C42', '#FFA15C', '#FFB676', '#FFCB91']
+    
+    # Define color mapping for publication types
+    data_colors = {}
+    for i, (pub_type, _) in enumerate(top_pub_types):
+        data_colors[pub_type] = colors[i % len(colors)]
+    
+    # Build the hierarchical data structure
+    data = []
+    
+    for i, (pub_type, pub_count) in enumerate(top_pub_types):
+        pub_node = {
+            "name": pub_type,
+            "value": pub_count,  # Add count for single-level display
+            "itemStyle": {
+                "color": data_colors[pub_type]
+            },
+            "children": []
+        }
+        
+        # Find study designs for this publication type (only top 5)
+        for design_name, _ in top_study_designs:
+            rel_key = f"{pub_type}|{design_name}"
+            if rel_key in relationships:
+                design_count = relationships[rel_key]['count']
+                
+                design_node = {
+                    "name": design_name,
+                    "value": design_count,  # Add count for level 2
+                    "children": []
+                }
+                
+                # Find funding sources for this combination (only top 5)
+                funding_for_combo = relationships[rel_key]['funding']
+                top_funding_for_combo = sorted(
+                    [(k, v) for k, v in funding_for_combo.items() if k in top_funding_names],
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:5]  # Limit to top 5 funding sources for this specific combination
+                
+                for funding_name, funding_count in top_funding_for_combo:
+                    funding_node = {
+                        "name": funding_name,
+                        "value": funding_count
+                    }
+                    design_node["children"].append(funding_node)
+                
+                # Only add design node if it has funding children
+                if design_node["children"]:
+                    pub_node["children"].append(design_node)
+        
+        # Only add pub type node if it has study design children
+        if pub_node["children"]:
+            data.append(pub_node)
+        else:
+            # If no children but it's a top 5 pub type, add it anyway with empty children
+            pub_node["children"] = []
+            data.append(pub_node)
+    
+    return data
+
+def create_pyecharts_sunburst_html(data):
+    """Create a pyecharts sunburst chart and return HTML"""
+    
+    # Custom background color (light orange tint)
+    bg_color = '#ffebeb'
+    
+    # Create the Sunburst chart
+    sunburst = (
+        Sunburst(init_opts=opts.InitOpts(
+            width="100%", 
+            height="453px", 
+            bg_color=bg_color,
+            theme=ThemeType.LIGHT
+        ))
+        .add(
+            series_name="Back",
+            data_pair=data,
+            highlight_policy="ancestor",
+            radius=[0, "95%"],
+            sort_="null",
+            levels=[
+                {},  # Level 0 - Center: "Research"
+                {    # Level 1 - Publication Types (top 5)
+                    "r0": "8%",
+                    "r": "35%",
+                    "label": {"rotate": "0", "fontSize": 10},
+                    
+                },
+                {    # Level 2 - Study Designs (top 5)
+                    "r0": "35%",
+                    "r": "70%",
+                    "label": {"rotate": "0", "fontSize": 10},
+                },
+                {    # Level 3 - Funding Sources (top 5)
+                    "r0": "70%",
+                    "r": "95%",
+                    "label": {
+                        "rotate": "0",
+                        "fontSize": 9
+                    }
+                }
+            ],
+        )
+        .set_global_opts(
+            title_opts=opts.TitleOpts(
+                title="E-Cigarette Research Overview",
+                title_textstyle_opts=opts.TextStyleOpts(color="#333", font_size=16),
+            ),
+            tooltip_opts=opts.TooltipOpts(
+                trigger="item",
+                formatter="{b}: {c}"
+            )
+        )
+    )
+    
+    # Create a temporary file to save the HTML
+    with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmpfile:
+        sunburst.render(tmpfile.name)
+        html_path = tmpfile.name
+    
+    # Read the HTML content
+    with open(html_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+    
+    # Clean up the temporary file
+    os.unlink(html_path)
+    
+    return html_content
+    """Create a pyecharts sunburst chart and return HTML"""
+    
+    # Custom background color (light orange tint)
+    bg_color = '#ffebeb'
+    
+    # Create the Sunburst chart
+    sunburst = (
+        Sunburst(init_opts=opts.InitOpts(
+            width="100%", 
+            height="453px", 
+            bg_color=bg_color,
+            theme=ThemeType.LIGHT
+        ))
+        .add(
+            series_name="E-Cigarette Research",
+            data_pair=data,
+            highlight_policy="ancestor",
+            radius=[0, "95%"],
+            sort_="null",
+            levels=[
+                {},  # Level 0 - Center: "Research"
+                {    # Level 1 - Publication Types
+                    "r0": "0",
+                    "r": "35%",
+                    "label": {"rotate": "0"}
+                },
+                {    # Level 2 - Study Designs 
+                    "r0": "35%",
+                    "r": "70%"
+                },
+                {    # Level 3 - Funding Sources
+                    "r0": "70%",
+                    "r": "95%",
+                    "label": {
+                        "rotate": "tangential",
+                        "fontSize": 10
+                    }
+                }
+            ],
+        )
+        .set_global_opts(
+            title_opts=opts.TitleOpts(
+                title="E-Cigarette Research Overview",
+                title_textstyle_opts=opts.TextStyleOpts(color="#333", font_size=16),
+            ),
+            tooltip_opts=opts.TooltipOpts(
+                trigger="item",
+                formatter="{b}: {c}"
+            )
+        )
+    )
+    
+    # Create a temporary file to save the HTML
+    with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmpfile:
+        sunburst.render(tmpfile.name)
+        html_path = tmpfile.name
+    
+    # Read the HTML content
+    with open(html_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+    
+    # Clean up the temporary file
+    os.unlink(html_path)
+    
+    return html_content
+
+def display_pyecharts_sunburst(df, matching_docs):
+    """Function to generate and display the pyecharts sunburst in Streamlit"""
+    # Generate the data
+    sunburst_data = generate_pyecharts_sunburst_data(df, matching_docs)
+    
+    if not sunburst_data:
+        st.warning("Not enough data to generate the chart. Please adjust your filters.")
+        return
+    
+    # Create the HTML
+    html_content = create_pyecharts_sunburst_html(sunburst_data)
+    
+    # Display in Streamlit
+    st.components.v1.html(html_content, height=470, scrolling=False)
+
+
 # Add a sidebar with filters
 with st.sidebar:
     st.subheader("API Configuration")
@@ -888,14 +1175,18 @@ with tabs[0]:
             # Create radio buttons arranged horizontally for chart selection
             chart_type = st.radio(
                 "Select Chart Type:",
-                ["Yearly", "Publication Type", "Funding Source", "Study Design"],
+                ["Overall", "Yearly", "Publication Type", "Funding Source", "Study Design"],
                 horizontal=True
             )
             
             pub_df = get_publications_by_year(matching_docs)
             
             if not pub_df.empty:
-                if chart_type == "Yearly":
+                if chart_type == "Overall":
+                    display_pyecharts_sunburst(df, matching_docs)
+                    
+                elif chart_type == "Yearly":
+               
                     # Original yearly bar chart
                     fig = px.bar(
                         pub_df,
