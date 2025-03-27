@@ -6,3 +6,4 @@ pillow
 python-dateutil
 openai
 openpyxl
+pyecharts
