@@ -9,4 +9,3 @@ openpyxl
 pyecharts
 folium
 streamlit-folium
-re
