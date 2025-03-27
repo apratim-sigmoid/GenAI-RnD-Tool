@@ -12,6 +12,10 @@ from pyecharts.globals import ThemeType
 import tempfile
 import os
 
+import folium
+from streamlit_folium import folium_static
+import re
+
 # Page config
 st.set_page_config(
     page_title="IB GenAI R&D Tool",
@@ -896,6 +900,202 @@ def display_pyecharts_sunburst(df, matching_docs):
     st.components.v1.html(html_content, height=470, scrolling=False)
 
 
+# Function to extract and count countries from research data
+def get_countries_by_study(df, matching_docs):
+    """
+    Extract countries mentioned in studies and count their occurrences.
+    
+    Parameters:
+    df (pandas.DataFrame): DataFrame containing the research data
+    matching_docs (list): List of document column names that match current filters
+    
+    Returns:
+    dict: Dictionary with countries as keys and their mention counts as values
+    """
+    country_data = {}
+    
+    # Find rows where Category is 'country_of_study'
+    if 'Category' in df.columns and 'country_of_study' in df['Category'].values:
+        country_rows = df[df['Category'] == 'country_of_study']
+        
+        for doc_col in matching_docs:
+            country_value = country_rows[doc_col].iloc[0] if not country_rows.empty else None
+            
+            if country_value and not pd.isna(country_value):
+                # Split by comma, semicolon, or 'and' to handle multiple countries in one cell
+                split_countries = re.split(r',|\s+and\s+|;', str(country_value))
+                
+                for country in split_countries:
+                    # Clean up country name
+                    country = country.strip()
+                    if country:
+                        # Handle special cases for country names
+                        if country.lower() in ['usa', 'us', 'u.s.', 'u.s.a.', 'united states']:
+                            country = 'United States of America'
+                        elif country.lower() in ['uk', 'u.k.', 'england', 'britain', 'great britain', 'united kingdon']:
+                            country = 'United Kingdom'
+                        
+                        # Count occurrences
+                        if country in country_data:
+                            country_data[country] += 1
+                        else:
+                            country_data[country] = 1
+    
+    # Filter out 'Global' as it's not a country
+    if 'Global' in country_data:
+        del country_data['Global']
+        
+    return country_data
+
+# Function to create folium choropleth map
+def create_country_choropleth(country_data):
+    """
+    Create a folium choropleth map based on country data.
+    
+    Parameters:
+    country_data (dict): Dictionary with countries as keys and their mention counts as values
+    
+    Returns:
+    folium.Map: A folium map with choropleth visualization
+    """
+    # Convert dictionary to DataFrame for easier handling
+    df = pd.DataFrame(list(country_data.items()), columns=['Country', 'Count'])
+    
+    # Calculate percentiles for counts
+    df['Percentile'] = df['Count'].rank(pct=True) * 100
+    
+    # Create a map centered on the world
+    m = folium.Map(location=[20, 0], zoom_start=2)
+    
+    # Add the GeoJSON with choropleth data
+    choropleth = folium.Choropleth(
+        geo_data="https://raw.githubusercontent.com/python-visualization/folium/master/examples/data/world-countries.json",
+        name="Country Counts",
+        data=df,
+        columns=['Country', 'Percentile'],  # Use percentile instead of raw count
+        key_on="feature.properties.name",  # Standard key for country name in GeoJSON
+        fill_color="YlGn",  # Yellow to Green colormap
+        fill_opacity=0.7,
+        line_opacity=0.2,
+        legend_name="Country Mentions (Percentile)",
+    ).add_to(m)
+    
+    # Create a tooltip showing both raw count and percentile
+    style_function = lambda x: {'fillColor': '#00000000', 'color': '#00000000'}
+    highlight_function = lambda x: {'weight': 3, 'fillOpacity': 0.1}
+    
+    # Extract GeoJSON data for enhanced tooltips
+    geojson = choropleth.geojson.data
+    
+    # Add custom tooltips showing both count and percentile
+    folium.GeoJson(
+        geojson,
+        name='Count and Percentile',
+        style_function=style_function,
+        highlight_function=highlight_function,
+        tooltip=folium.GeoJsonTooltip(
+            fields=['name'],
+            aliases=['Country:'],
+            localize=True,
+            sticky=True,
+            labels=True,
+            style="""
+                background-color: #F0EFEF;
+                border: 2px solid black;
+                border-radius: 3px;
+                box-shadow: 3px;
+            """,
+            max_width=800,
+        ),
+    ).add_to(m)
+    
+    # Add a custom legend showing percentile ranges
+    legend_html = '''
+        <div style="position: fixed; 
+                    bottom: 50px; left: 50px; width: 180px; height: 120px; 
+                    border:2px solid grey; z-index:9999; font-size:14px;
+                    background-color:white;
+                    padding: 10px;
+                    border-radius: 5px;">
+            <p style="margin-bottom: 5px; font-weight: bold;">Percentile Ranges</p>
+            <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                <div style="background-color: #f7fcb9; width: 20px; height: 20px; margin-right: 5px;"></div>
+                <span>Low (0-33%)</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                <div style="background-color: #addd8e; width: 20px; height: 20px; margin-right: 5px;"></div>
+                <span>Medium (34-66%)</span>
+            </div>
+            <div style="display: flex; align-items: center;">
+                <div style="background-color: #31a354; width: 20px; height: 20px; margin-right: 5px;"></div>
+                <span>High (67-100%)</span>
+            </div>
+        </div>
+    '''
+    m.get_root().html.add_child(folium.Element(legend_html))
+    
+    # Add layer control
+    folium.LayerControl().add_to(m)
+    
+    return m
+
+# Modify the main Streamlit code to add the new radio button option
+def add_country_map_option(df, matching_docs, chart_type):
+    """
+    Add and handle the 'Country' radio button option in the Publication Distribution section
+    
+    Parameters:
+    df (pandas.DataFrame): DataFrame containing the research data
+    matching_docs (list): List of document column names that match current filters
+    chart_type (str): The selected chart type from the radio button
+    """
+    if chart_type == "Country":
+        
+        # Extract country data from matching documents
+        country_data = get_countries_by_study(df, matching_docs)
+        
+        if not country_data:
+            st.info("No country data available for the filtered documents.")
+            return
+        
+        # Create and display the map (full width)
+        country_map = create_country_choropleth(country_data)
+        folium_static(country_map, width=800, height=450)
+        
+        # Add collapsible section with top countries
+        with st.expander("View Top Countries by Study Count", expanded=False):
+            # Show a table of top countries with percentiles
+            
+            # Sort countries by count in descending order
+            sorted_countries = sorted(country_data.items(), key=lambda x: x[1], reverse=True)
+            
+            # Calculate percentiles for display
+            country_counts = [count for _, count in sorted_countries]
+            total_countries = len(country_counts)
+            
+            # Create a formatted table
+            table_data = []
+            for i, (country, count) in enumerate(sorted_countries[:15], 1):
+                # Calculate percentile rank
+                percentile = round((sum(c <= count for c in country_counts) / total_countries) * 100)
+                table_data.append({
+                    "Rank": i,
+                    "Country": country,
+                    "Studies": count,
+                    "Percentile": f"{percentile}%"
+                })
+            
+            # Display as a DataFrame
+            table_df = pd.DataFrame(table_data)
+            st.dataframe(table_df, use_container_width=True, hide_index=True)
+            
+            # Show total unique countries
+            st.markdown(f"**Total unique countries in dataset**: {len(country_data)}")
+            
+            # Show total unique countries
+            st.markdown(f"**Total unique countries**: {len(country_data)}")
+
+
 # Add a sidebar with filters
 with st.sidebar:
     st.subheader("API Configuration")
@@ -1175,7 +1375,7 @@ with tabs[0]:
             # Create radio buttons arranged horizontally for chart selection
             chart_type = st.radio(
                 "Select Chart Type:",
-                ["Overall", "Yearly", "Publication Type", "Funding Source", "Study Design"],
+                ["Overall", "Yearly", "Pub. Type", "Funding", "Study Design", "Country"],
                 horizontal=True
             )
             
@@ -1200,7 +1400,7 @@ with tabs[0]:
                     fig.update_layout(height=500)
                     st.plotly_chart(fig, use_container_width=True)
                 
-                elif chart_type == "Publication Type":
+                elif chart_type == "Pub. Type":
                     # Create stacked chart for Publication Type by year
                     pub_types_by_year = {}
                     
@@ -1340,7 +1540,7 @@ with tabs[0]:
                     else:
                         st.info("Publication type data not available for the filtered documents")
                 
-                elif chart_type == "Funding Source":
+                elif chart_type == "Funding":
                     # Create stacked chart for Funding Source by year
                     funding_by_year = {}
                     
@@ -1615,10 +1815,52 @@ with tabs[0]:
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("Study design data not available for the filtered documents")
+            
+                elif chart_type == "Country":
+                    
+                    # Extract country data from matching documents
+                    country_data = get_countries_by_study(df, matching_docs)
+                    
+                    if country_data:
+                        # Create and display the map (full width)
+                        country_map = create_country_choropleth(country_data)
+                        folium_static(country_map, width=800, height=375)
+                        
+                        # Add collapsible section with top countries
+                        with st.expander("View Top Countries by Study Count", expanded=False):
+                            # Show a table of top countries with percentiles
+                            
+                            # Sort countries by count in descending order
+                            sorted_countries = sorted(country_data.items(), key=lambda x: x[1], reverse=True)
+                            
+                            # Calculate percentiles for display
+                            country_counts = [count for _, count in sorted_countries]
+                            total_countries = len(country_counts)
+                            
+                            # Create a formatted table
+                            table_data = []
+                            for i, (country, count) in enumerate(sorted_countries[:12], 1):
+                                # Calculate percentile rank
+                                table_data.append({
+                                    "Rank": i,
+                                    "Country": country,
+                                    "Studies": count
+                                })
+                            
+                            # Display as a DataFrame
+                            table_df = pd.DataFrame(table_data)
+                            st.dataframe(table_df, use_container_width=True, hide_index=True)
+                            
+                            # Show total unique countries
+                            st.markdown(f"**Total unique countries in dataset**: {len(country_data)}")
+                    else:
+                        st.info("No country data available for the filtered documents.")
+        
+        
+                else:
+                    st.info("Publication year data not available for the filtered documents")
             else:
-                st.info("Publication year data not available for the filtered documents")
-    else:
-        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+                st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
 
 with tabs[1]:  # Adverse Events tab
