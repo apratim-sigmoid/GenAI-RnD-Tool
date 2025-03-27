@@ -1824,7 +1824,7 @@ with tabs[0]:
                     if country_data:
                         # Create and display the map (full width)
                         country_map = create_country_choropleth(country_data)
-                        folium_static(country_map, width=800, height=375)
+                        folium_static(country_map, width=690, height=375)
                         
                         # Add collapsible section with top countries
                         with st.expander("View Top Countries by Study Count", expanded=False):
