@@ -1,20 +1,11 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from PIL import Image
-from openai import OpenAI
+import requests
 
-from pyecharts import options as opts
-from pyecharts.charts import Sunburst
-from pyecharts.globals import ThemeType
-import tempfile
-import os
+from insights_utils import extract_research_insights_from_docs, generate_insights_with_gpt4o, display_insights
+from visualization_utils import display_publication_distribution
 
-import folium
-from streamlit_folium import folium_static
-import re
 
 # Page config
 st.set_page_config(
@@ -24,273 +15,9 @@ st.set_page_config(
 )
 
 
-
-def extract_research_insights_from_docs(df, matching_docs):
-    """
-    Extract comprehensive research insights from matching documents including key findings,
-    causal mechanisms, R&D insights, study characteristics, and health outcomes.
-    """
-    insights = {}
-    
-    # Categories to extract
-    categories_to_extract = {
-        "Key Findings": [
-            "main_conclusions", "primary_outcomes", "secondary_outcomes", 
-            "novel_findings", "limitations", "generalizability", 
-            "future_research_suggestions", "contradictions"
-        ],
-        "Causal Mechanisms": [
-            "chemicals_implicated", "biological_pathways", 
-            "device_factors", "usage_pattern_factors"
-        ],
-        "R&D Insights": [
-            "harmful_ingredients", "device_design_implications", 
-            "comparative_benefits", "potential_innovation_areas",
-            "operating_parameters"
-        ],
-        "Study Characteristics": [
-            "primary_type", "secondary_features", "time_periods",
-            "total_size", "user_groups", "e_cigarette_specifications",
-            "data_collection_method"
-        ],
-        "Health Outcomes": [
-            "respiratory_effects", "cardiovascular_effects", "oral_health",
-            "neurological_effects", "psychiatric_effects", "cancer_risk",
-            "developmental_effects", "other_health_outcomes"
-        ]
-    }
-    
-    # For each matching document, extract the insights
-    for doc_col in matching_docs:
-        doc_insights = {}
-        
-        # Get title if available
-        title = None
-        title_row = df[(df['Main Category'] == 'meta_data') & (df['Category'] == 'title')]
-        if not title_row.empty:
-            title = title_row[doc_col].iloc[0]
-        
-        doc_identifier = title if title and not pd.isna(title) else doc_col
-        
-        # Process each main category
-        for main_category, subcategories in categories_to_extract.items():
-            category_insights = {}
-            
-            for subcategory in subcategories:
-                # Look for exact matches first
-                subcategory_rows = df[df['Category'] == subcategory]
-                
-                # If not found, try partial matches
-                if subcategory_rows.empty:
-                    subcategory_rows = df[df['Category'].str.contains(subcategory, na=False)]
-                
-                # If still not found, look for it in SubCategory
-                if subcategory_rows.empty and 'SubCategory' in df.columns:
-                    subcategory_rows = df[df['SubCategory'] == subcategory]
-                    
-                    if subcategory_rows.empty:
-                        subcategory_rows = df[df['SubCategory'].str.contains(subcategory, na=False)]
-                
-                if not subcategory_rows.empty:
-                    subcategory_data = subcategory_rows[doc_col].dropna().tolist()
-                    if subcategory_data:
-                        category_insights[subcategory] = subcategory_data
-            
-            if category_insights:
-                doc_insights[main_category] = category_insights
-        
-        insights[doc_identifier] = doc_insights
-    
-    return insights
-
-
-def generate_insights_with_gpt4o(insights_data, api_key):
-    """
-    Pass the extracted research insights to GPT-4o and get concise bullet point insights.
-    """
-    if not insights_data:
-        return ["No insights found in the filtered documents."]
-    
-    try:
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key)
-        
-        # Format the structured insights data into a readable text format for the prompt
-        formatted_insights = []
-        
-        for doc_id, doc_data in insights_data.items():
-            formatted_insights.append(f"DOCUMENT: {doc_id}")
-            
-            for category, category_data in doc_data.items():
-                formatted_insights.append(f"\n{category}:")
-                
-                for subcategory, values in category_data.items():
-                    if isinstance(values, list):
-                        formatted_insights.append(f"  - {subcategory}: {'; '.join(str(v) for v in values)}")
-                    else:
-                        formatted_insights.append(f"  - {subcategory}: {values}")
-            
-            formatted_insights.append("\n---\n")
-        
-        # Prepare the prompt with specific formatting instructions
-        prompt = """
-        You are an expert researcher analyzing e-cigarette and vaping studies. Below are detailed research insights from several studies, organized by document and category. 
-        
-        Based on these insights, generate 7-10 concise, insightful bullet points that capture the key findings, patterns, and implications across the studies.
-        Focus on being specific, evidence-based, and highlighting both consensus and contradictions across studies.
-        
-        Pay special attention to:
-        1. Key conclusions and novel findings
-        2. Health outcomes and causal mechanisms 
-        3. R&D implications
-        4. Methodological strengths and limitations
-        5. Areas of consensus vs. areas of contradiction
-
-        IMPORTANT FORMATTING INSTRUCTION:
-        - Use ONLY a single bullet point character '•' at the beginning of each insight
-        - DO NOT use any secondary or nested bullet points
-        - DO NOT start any line with any other bullet character or symbol
-        
-        Here are the research insights:
-        
-        {}
-        
-        Please respond with only the bullet points, each starting with a '•' character.
-        """.format('\n'.join(formatted_insights))
-        
-        # Make API call to GPT-4o
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that generates concise research insights with simple bullet points. Never use nested bullet points."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=4096
-        )
-        
-        # Extract and process the bullet points
-        insights_text = response.choices[0].message.content
-        
-        # Split the text into bullet points, making sure each starts with •
-        bullet_points = []
-        for line in insights_text.split('\n'):
-            line = line.strip()
-            if line and line.startswith('•'):
-                # Remove any potential nested bullets by replacing any bullet characters
-                # that might appear after the initial bullet with their text equivalent
-                clean_line = line.replace(' • ', ': ')  # Replace nested bullets with colons
-                bullet_points.append(clean_line)
-            elif line and bullet_points:  # For lines that might be continuation of previous bullet point
-                # Make sure there are no bullet characters in continuation lines
-                clean_line = line.replace('•', '')
-                bullet_points[-1] += ' ' + clean_line
-        
-        # If no bullet points were found with •, try to parse by lines
-        if not bullet_points:
-            bullet_points = [line.strip().replace('•', '') for line in insights_text.split('\n') if line.strip()]
-        
-        return bullet_points
-    
-    except Exception as e:
-        return [f"Error generating insights: {str(e)}"]
-    
-
-def display_gpt4o_insights(df, matching_docs):
-    st.subheader("Research Insights")
-    
-    # Check if there are matching documents
-    if not matching_docs:
-        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
-        return
-    
-    # Get the API key from session state (already set in sidebar)
-    api_key = st.session_state.openai_api_key
-    
-    # Create container with fixed height for scrollable content
-    insights_container = st.container()
-    
-    with insights_container:
-        # Always add the CSS for the insights wrapper
-        st.markdown("""
-        <style>
-        .insights-wrapper {
-            height: 525px;
-            overflow-y: auto;
-            padding: 0rem;
-            border: 2px solid #f8d6d5;
-            border-radius: 0.5rem;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        if generate_button:  # Using the button from sidebar
-            with st.spinner("Generating insights..."):
-                # Extract research insights from matching documents
-                research_insights = extract_research_insights_from_docs(df, matching_docs)
-                
-                if not research_insights:
-                    st.markdown("<div class='insights-wrapper'>No research insights found in the filtered documents.</div>", unsafe_allow_html=True)
-                    return
-                
-                # Generate insights using GPT-4o
-                insights = generate_insights_with_gpt4o(research_insights, api_key)
-                
-                # Create the scrollable container with insights content
-                insights_html = "<div class='insights-wrapper'>"
-                for insight in insights:
-                    insights_html += f"<p>{insight}</p>"
-                insights_html += "</div>"
-                
-                st.markdown(insights_html, unsafe_allow_html=True)
-            
-            # Save the generated insights in session state for reuse
-            st.session_state.generated_insights = insights
-                        
-        elif api_key and "generated_insights" in st.session_state:
-            # Display previously generated insights if available
-            insights_html = "<div class='insights-wrapper'>"
-            for insight in st.session_state.generated_insights:
-                insights_html += f"<p>{insight}</p>"
-            insights_html += "</div>"
-            
-            st.markdown(insights_html, unsafe_allow_html=True)
-        else:
-            # For the empty state, we'll create a custom component that combines:
-            # 1. The existing border styling
-            # 2. A message about generating insights
-            # 3. The wordcloud image loaded directly from file
-            
-            message = "Click the 'Generate Insights' button to analyze research findings."
-            if not api_key:
-                message = "Please enter your OpenAI API key to generate insights."
-            
-            try:
-                # Load the wordcloud image directly from the Images folder
-                wordcloud_path = "Images/ecigarette_research_wordcloud.png"
-                import base64
-                
-                # Read and encode the image to base64
-                with open(wordcloud_path, "rb") as image_file:
-                    encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-                
-                # Build HTML with embedded wordcloud image
-                html = f"""
-                <div class="insights-wrapper" style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                    <p style="color: #666; text-align: left; margin-bottom: 0px; position: absolute; top: 8px; left: 20px; right: 0; z-index: 2;">{message}</p>
-                    <img src="data:image/png;base64,{encoded_image}" style="width: 100%; height: 100%; object-fit: cover; padding: 35px 0px 15px 0px;" />
-                </div>
-                """
-                st.markdown(html, unsafe_allow_html=True)
-            except Exception as e:
-                # Fallback if image loading fails
-                st.markdown(f"""
-                <div class="insights-wrapper" style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                    <p style="color: #666; text-align: center;">{message}</p>
-                    <p style="color: #999; font-size: 0.8em;">Unable to load wordcloud image: {str(e)}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
+# Define the tab names for the progress tracking
+tab_names = ["Overview", "Adverse Events", "Perceived Benefits", "Health Outcomes", 
+             "Research Trends", "Contradictions & Conflicts", "Bias in Research", "Publication Level"]                
                 
 # Load the Excel file
 @st.cache_data
@@ -515,32 +242,6 @@ def get_filtered_data(field_category, field_subcategory=None, matching_docs=None
     
     return pd.DataFrame({'document': list(result_data.keys()), 'value': list(result_data.values())})
 
-# Generate publications by year chart data
-def get_publications_by_year(matching_docs):
-    year_counts = {}
-    
-    if 'publication_year' in df['Category'].values:
-        year_rows = df[df['Category'] == 'publication_year']
-        
-        for doc_col in matching_docs:
-            year_value = year_rows[doc_col].iloc[0] if not year_rows.empty else None
-            if year_value and not pd.isna(year_value):
-                try:
-                    year = int(float(year_value))
-                    if year in year_counts:
-                        year_counts[year] += 1
-                    else:
-                        year_counts[year] = 1
-                except (ValueError, TypeError):
-                    continue
-    
-    # Convert to DataFrame
-    if year_counts:
-        years = sorted(year_counts.keys())
-        counts = [year_counts[year] for year in years]
-        return pd.DataFrame({'Year': years, 'Count': counts})
-    
-    return pd.DataFrame()
 
 # Display logo
 try:
@@ -619,483 +320,6 @@ def on_enable_sample_size_change():
     st.session_state.enable_sample_size = st.session_state.enable_sample_size_checkbox
 
 
-def generate_pyecharts_sunburst_data(df, matching_docs):
-    """
-    Generate hierarchical data structure for pyecharts sunburst chart
-    from filtered matching_docs, showing top 5 from each hierarchy level:
-    publication type, study design, and funding source
-    """
-    # Extract data from filtered documents
-    pub_types = {}
-    study_designs = {}
-    funding_sources = {}
-    
-    # Get rows for each category
-    pub_type_rows = df[df['Category'] == 'publication_type']
-    study_design_rows = df[df['SubCategory'] == 'primary_type']
-    funding_rows = df[df['SubCategory'] == 'type']
-    
-    # Track document relationships between categories
-    relationships = {}
-    
-    # Count occurrences and track relationships
-    for doc_col in matching_docs:
-        # Extract publication type
-        if not pub_type_rows.empty:
-            try:
-                pub_type = pub_type_rows[doc_col].iloc[0]
-                if pub_type and not pd.isna(pub_type):
-                    pub_types[pub_type] = pub_types.get(pub_type, 0) + 1
-                    
-                    # Extract study design for this document
-                    if not study_design_rows.empty:
-                        try:
-                            design = study_design_rows[doc_col].iloc[0]
-                            if design and not pd.isna(design):
-                                study_designs[design] = study_designs.get(design, 0) + 1
-                                
-                                # Create relationship key
-                                rel_key = f"{pub_type}|{design}"
-                                if rel_key not in relationships:
-                                    relationships[rel_key] = {'count': 0, 'funding': {}}
-                                relationships[rel_key]['count'] += 1
-                                
-                                # Extract funding source for this document
-                                if not funding_rows.empty:
-                                    try:
-                                        funding = funding_rows[doc_col].iloc[0]
-                                        if funding and not pd.isna(funding):
-                                            funding_sources[funding] = funding_sources.get(funding, 0) + 1
-                                            
-                                            # Add to relationship
-                                            if funding not in relationships[rel_key]['funding']:
-                                                relationships[rel_key]['funding'][funding] = 0
-                                            relationships[rel_key]['funding'][funding] += 1
-                                    except (IndexError, KeyError):
-                                        pass
-                        except (IndexError, KeyError):
-                            pass
-            except (IndexError, KeyError):
-                pass
-    
-    # Get top 5 from each category
-    top_pub_types = sorted(pub_types.items(), key=lambda x: x[1], reverse=True)[:5]
-    top_study_designs = sorted(study_designs.items(), key=lambda x: x[1], reverse=True)[:5]
-    top_funding_sources = sorted(funding_sources.items(), key=lambda x: x[1], reverse=True)[:5]
-    
-    # Create sets for quick lookup
-    top_pub_type_names = {pt[0] for pt in top_pub_types}
-    top_design_names = {d[0] for d in top_study_designs}
-    top_funding_names = {f[0] for f in top_funding_sources}
-    
-    # Custom color scheme with Imperial Brands orange as the base
-    colors = ['#FF7417', '#FF8C42', '#FFA15C', '#FFB676', '#FFCB91']
-    
-    # Define color mapping for publication types
-    data_colors = {}
-    for i, (pub_type, _) in enumerate(top_pub_types):
-        data_colors[pub_type] = colors[i % len(colors)]
-    
-    # Build the hierarchical data structure
-    data = []
-    
-    for i, (pub_type, pub_count) in enumerate(top_pub_types):
-        pub_node = {
-            "name": pub_type,
-            "value": pub_count,  # Add count for single-level display
-            "itemStyle": {
-                "color": data_colors[pub_type]
-            },
-            "children": []
-        }
-        
-        # Find study designs for this publication type (only top 5)
-        for design_name, _ in top_study_designs:
-            rel_key = f"{pub_type}|{design_name}"
-            if rel_key in relationships:
-                design_count = relationships[rel_key]['count']
-                
-                design_node = {
-                    "name": design_name,
-                    "value": design_count,  # Add count for level 2
-                    "children": []
-                }
-                
-                # Find funding sources for this combination (only top 5)
-                funding_for_combo = relationships[rel_key]['funding']
-                top_funding_for_combo = sorted(
-                    [(k, v) for k, v in funding_for_combo.items() if k in top_funding_names],
-                    key=lambda x: x[1],
-                    reverse=True
-                )[:5]  # Limit to top 5 funding sources for this specific combination
-                
-                for funding_name, funding_count in top_funding_for_combo:
-                    funding_node = {
-                        "name": funding_name,
-                        "value": funding_count
-                    }
-                    design_node["children"].append(funding_node)
-                
-                # Only add design node if it has funding children
-                if design_node["children"]:
-                    pub_node["children"].append(design_node)
-        
-        # Only add pub type node if it has study design children
-        if pub_node["children"]:
-            data.append(pub_node)
-        else:
-            # If no children but it's a top 5 pub type, add it anyway with empty children
-            pub_node["children"] = []
-            data.append(pub_node)
-    
-    return data
-
-def create_pyecharts_sunburst_html(data):
-    """Create a pyecharts sunburst chart and return HTML"""
-    
-    # Custom background color (light orange tint)
-    bg_color = '#ffebeb'
-    
-    # Create the Sunburst chart
-    sunburst = (
-        Sunburst(init_opts=opts.InitOpts(
-            width="100%", 
-            height="453px", 
-            bg_color=bg_color,
-            theme=ThemeType.LIGHT
-        ))
-        .add(
-            series_name="Back",
-            data_pair=data,
-            highlight_policy="ancestor",
-            radius=[0, "95%"],
-            sort_="null",
-            levels=[
-                {},  # Level 0 - Center: "Research"
-                {    # Level 1 - Publication Types (top 5)
-                    "r0": "8%",
-                    "r": "35%",
-                    "label": {"rotate": "0", "fontSize": 10},
-                    
-                },
-                {    # Level 2 - Study Designs (top 5)
-                    "r0": "35%",
-                    "r": "70%",
-                    "label": {"rotate": "0", "fontSize": 10},
-                },
-                {    # Level 3 - Funding Sources (top 5)
-                    "r0": "70%",
-                    "r": "95%",
-                    "label": {
-                        "rotate": "0",
-                        "fontSize": 9
-                    }
-                }
-            ],
-        )
-        .set_global_opts(
-            title_opts=opts.TitleOpts(
-                title="E-Cigarette Research Overview",
-                title_textstyle_opts=opts.TextStyleOpts(color="#333", font_size=16),
-            ),
-            tooltip_opts=opts.TooltipOpts(
-                trigger="item",
-                formatter="{b}: {c}"
-            )
-        )
-    )
-    
-    # Create a temporary file to save the HTML
-    with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmpfile:
-        sunburst.render(tmpfile.name)
-        html_path = tmpfile.name
-    
-    # Read the HTML content
-    with open(html_path, 'r', encoding='utf-8') as f:
-        html_content = f.read()
-    
-    # Clean up the temporary file
-    os.unlink(html_path)
-    
-    return html_content
-    """Create a pyecharts sunburst chart and return HTML"""
-    
-    # Custom background color (light orange tint)
-    bg_color = '#ffebeb'
-    
-    # Create the Sunburst chart
-    sunburst = (
-        Sunburst(init_opts=opts.InitOpts(
-            width="100%", 
-            height="453px", 
-            bg_color=bg_color,
-            theme=ThemeType.LIGHT
-        ))
-        .add(
-            series_name="E-Cigarette Research",
-            data_pair=data,
-            highlight_policy="ancestor",
-            radius=[0, "95%"],
-            sort_="null",
-            levels=[
-                {},  # Level 0 - Center: "Research"
-                {    # Level 1 - Publication Types
-                    "r0": "0",
-                    "r": "35%",
-                    "label": {"rotate": "0"}
-                },
-                {    # Level 2 - Study Designs 
-                    "r0": "35%",
-                    "r": "70%"
-                },
-                {    # Level 3 - Funding Sources
-                    "r0": "70%",
-                    "r": "95%",
-                    "label": {
-                        "rotate": "tangential",
-                        "fontSize": 10
-                    }
-                }
-            ],
-        )
-        .set_global_opts(
-            title_opts=opts.TitleOpts(
-                title="E-Cigarette Research Overview",
-                title_textstyle_opts=opts.TextStyleOpts(color="#333", font_size=16),
-            ),
-            tooltip_opts=opts.TooltipOpts(
-                trigger="item",
-                formatter="{b}: {c}"
-            )
-        )
-    )
-    
-    # Create a temporary file to save the HTML
-    with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmpfile:
-        sunburst.render(tmpfile.name)
-        html_path = tmpfile.name
-    
-    # Read the HTML content
-    with open(html_path, 'r', encoding='utf-8') as f:
-        html_content = f.read()
-    
-    # Clean up the temporary file
-    os.unlink(html_path)
-    
-    return html_content
-
-def display_pyecharts_sunburst(df, matching_docs):
-    """Function to generate and display the pyecharts sunburst in Streamlit"""
-    # Generate the data
-    sunburst_data = generate_pyecharts_sunburst_data(df, matching_docs)
-    
-    if not sunburst_data:
-        st.warning("Not enough data to generate the chart. Please adjust your filters.")
-        return
-    
-    # Create the HTML
-    html_content = create_pyecharts_sunburst_html(sunburst_data)
-    
-    # Display in Streamlit
-    st.components.v1.html(html_content, height=470, scrolling=False)
-
-
-# Function to extract and count countries from research data
-def get_countries_by_study(df, matching_docs):
-    """
-    Extract countries mentioned in studies and count their occurrences.
-    
-    Parameters:
-    df (pandas.DataFrame): DataFrame containing the research data
-    matching_docs (list): List of document column names that match current filters
-    
-    Returns:
-    dict: Dictionary with countries as keys and their mention counts as values
-    """
-    country_data = {}
-    
-    # Find rows where Category is 'country_of_study'
-    if 'Category' in df.columns and 'country_of_study' in df['Category'].values:
-        country_rows = df[df['Category'] == 'country_of_study']
-        
-        for doc_col in matching_docs:
-            country_value = country_rows[doc_col].iloc[0] if not country_rows.empty else None
-            
-            if country_value and not pd.isna(country_value):
-                # Split by comma, semicolon, or 'and' to handle multiple countries in one cell
-                split_countries = re.split(r',|\s+and\s+|;', str(country_value))
-                
-                for country in split_countries:
-                    # Clean up country name
-                    country = country.strip()
-                    if country:
-                        # Handle special cases for country names
-                        if country.lower() in ['usa', 'us', 'u.s.', 'u.s.a.', 'united states']:
-                            country = 'United States of America'
-                        elif country.lower() in ['uk', 'u.k.', 'england', 'britain', 'great britain', 'united kingdon']:
-                            country = 'United Kingdom'
-                        
-                        # Count occurrences
-                        if country in country_data:
-                            country_data[country] += 1
-                        else:
-                            country_data[country] = 1
-    
-    # Filter out 'Global' as it's not a country
-    if 'Global' in country_data:
-        del country_data['Global']
-        
-    return country_data
-
-# Function to create folium choropleth map
-def create_country_choropleth(country_data):
-    """
-    Create a folium choropleth map based on country data.
-    
-    Parameters:
-    country_data (dict): Dictionary with countries as keys and their mention counts as values
-    
-    Returns:
-    folium.Map: A folium map with choropleth visualization
-    """
-    # Convert dictionary to DataFrame for easier handling
-    df = pd.DataFrame(list(country_data.items()), columns=['Country', 'Count'])
-    
-    # Calculate percentiles for counts
-    df['Percentile'] = df['Count'].rank(pct=True) * 100
-    
-    # Create a map centered on the world
-    m = folium.Map(location=[20, 0], zoom_start=2)
-    
-    # Add the GeoJSON with choropleth data
-    choropleth = folium.Choropleth(
-        geo_data="https://raw.githubusercontent.com/python-visualization/folium/master/examples/data/world-countries.json",
-        name="Country Counts",
-        data=df,
-        columns=['Country', 'Percentile'],  # Use percentile instead of raw count
-        key_on="feature.properties.name",  # Standard key for country name in GeoJSON
-        fill_color="YlGn",  # Yellow to Green colormap
-        fill_opacity=0.7,
-        line_opacity=0.2,
-        legend_name="Country Mentions (Percentile)",
-    ).add_to(m)
-    
-    # Create a tooltip showing both raw count and percentile
-    style_function = lambda x: {'fillColor': '#00000000', 'color': '#00000000'}
-    highlight_function = lambda x: {'weight': 3, 'fillOpacity': 0.1}
-    
-    # Extract GeoJSON data for enhanced tooltips
-    geojson = choropleth.geojson.data
-    
-    # Add custom tooltips showing both count and percentile
-    folium.GeoJson(
-        geojson,
-        name='Count and Percentile',
-        style_function=style_function,
-        highlight_function=highlight_function,
-        tooltip=folium.GeoJsonTooltip(
-            fields=['name'],
-            aliases=['Country:'],
-            localize=True,
-            sticky=True,
-            labels=True,
-            style="""
-                background-color: #F0EFEF;
-                border: 2px solid black;
-                border-radius: 3px;
-                box-shadow: 3px;
-            """,
-            max_width=800,
-        ),
-    ).add_to(m)
-    
-    # Add a custom legend showing percentile ranges
-    legend_html = '''
-        <div style="position: fixed; 
-                    bottom: 50px; left: 50px; width: 180px; height: 120px; 
-                    border:2px solid grey; z-index:9999; font-size:14px;
-                    background-color:white;
-                    padding: 10px;
-                    border-radius: 5px;">
-            <p style="margin-bottom: 5px; font-weight: bold;">Percentile Ranges</p>
-            <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                <div style="background-color: #f7fcb9; width: 20px; height: 20px; margin-right: 5px;"></div>
-                <span>Low (0-33%)</span>
-            </div>
-            <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                <div style="background-color: #addd8e; width: 20px; height: 20px; margin-right: 5px;"></div>
-                <span>Medium (34-66%)</span>
-            </div>
-            <div style="display: flex; align-items: center;">
-                <div style="background-color: #31a354; width: 20px; height: 20px; margin-right: 5px;"></div>
-                <span>High (67-100%)</span>
-            </div>
-        </div>
-    '''
-    m.get_root().html.add_child(folium.Element(legend_html))
-    
-    # Add layer control
-    folium.LayerControl().add_to(m)
-    
-    return m
-
-# Modify the main Streamlit code to add the new radio button option
-def add_country_map_option(df, matching_docs, chart_type):
-    """
-    Add and handle the 'Country' radio button option in the Publication Distribution section
-    
-    Parameters:
-    df (pandas.DataFrame): DataFrame containing the research data
-    matching_docs (list): List of document column names that match current filters
-    chart_type (str): The selected chart type from the radio button
-    """
-    if chart_type == "Country":
-        
-        # Extract country data from matching documents
-        country_data = get_countries_by_study(df, matching_docs)
-        
-        if not country_data:
-            st.info("No country data available for the filtered documents.")
-            return
-        
-        # Create and display the map (full width)
-        country_map = create_country_choropleth(country_data)
-        folium_static(country_map, width=800, height=450)
-        
-        # Add collapsible section with top countries
-        with st.expander("View Top Countries by Study Count", expanded=False):
-            # Show a table of top countries with percentiles
-            
-            # Sort countries by count in descending order
-            sorted_countries = sorted(country_data.items(), key=lambda x: x[1], reverse=True)
-            
-            # Calculate percentiles for display
-            country_counts = [count for _, count in sorted_countries]
-            total_countries = len(country_counts)
-            
-            # Create a formatted table
-            table_data = []
-            for i, (country, count) in enumerate(sorted_countries[:15], 1):
-                # Calculate percentile rank
-                percentile = round((sum(c <= count for c in country_counts) / total_countries) * 100)
-                table_data.append({
-                    "Rank": i,
-                    "Country": country,
-                    "Studies": count,
-                    "Percentile": f"{percentile}%"
-                })
-            
-            # Display as a DataFrame
-            table_df = pd.DataFrame(table_data)
-            st.dataframe(table_df, use_container_width=True, hide_index=True)
-            
-            # Show total unique countries
-            st.markdown(f"**Total unique countries in dataset**: {len(country_data)}")
-            
-            # Show total unique countries
-            st.markdown(f"**Total unique countries**: {len(country_data)}")
-
-
 # Add a sidebar with filters
 with st.sidebar:
     st.subheader("API Configuration")
@@ -1112,27 +336,181 @@ with st.sidebar:
         key="api_key_input_sidebar"
     )
     st.session_state.openai_api_key = api_key
-    
-    # Custom CSS for the button with the Imperial Brands orange color
+                
     st.markdown("""
-        <style>
-        .stButton > button {
-            background-color: #FF7417;
-            color: white;
-            font-weight: bold;
-            border: 2px solid #FF0000;
-            padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
-        }
-        .stButton > button:hover {
-            background-color: #FFA664;
-            color: white;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+    <style>
+    /* Style for regular buttons - including all states */
+    div.stButton > button:first-child {
+        background-color: #5aac90;
+        color: white;
+        border: 2px solid transparent;  /* Start with transparent border */
+    }
+    
+    div.stButton > button:hover {
+        background-color: #5aac90;
+        color: white;
+        border: 2px solid orange;  /* Thicker red border on hover */
+        box-sizing: border-box;  /* Ensure border doesn't change button size */
+    }
+    
+    div.stButton > button:active, div.stButton > button:focus {
+        background-color: #5aac90;
+        color: yellow !important;
+        border: 2px solid orange !important;  /* Thicker red border on active/focus */
+        box-shadow: none;
+    }
+    
+    /* Style for download buttons - including all states */
+    div.stDownloadButton > button:first-child {
+        background-color: #5aac90;
+        color: white;
+        border: 1px solid transparent;  /* Start with transparent border */
+    }
+    
+    div.stDownloadButton > button:hover {
+        background-color: #5aac90;
+        color: white;
+        border: 3px solid red;  /* Thicker red border on hover */
+        box-sizing: border-box;  /* Ensure border doesn't change button size */
+    }
+    
+    div.stDownloadButton > button:active, div.stDownloadButton > button:focus {
+        background-color: #5aac90;
+        color: white !important;
+        border: 3px solid red !important;  /* Thicker red border on active/focus */
+        box-shadow: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Add these new session state variables
+    if "insights_in_progress" not in st.session_state:
+        st.session_state.insights_in_progress = False
+    
+    if "completed_tabs" not in st.session_state:
+        st.session_state.completed_tabs = set()
+    
+    if "current_processing_tab" not in st.session_state:
+        st.session_state.current_processing_tab = -1
     
     # Generate Insights button in sidebar with the custom styling applied
     generate_button = st.button("Generate Insights") and api_key
+    
+    # Initialize progress tracking in session state if not exists
+    if "progress_status" not in st.session_state:
+        st.session_state.progress_status = ["not_started"] * len(tab_names)
+        
+    if "current_tab_index" not in st.session_state:
+        st.session_state.current_tab_index = -1  # -1 means not processing any tab
+    
+    # Display progress bar with custom styling
+    if generate_button and not st.session_state.insights_in_progress:
+        # Reset progress status when generate button is clicked
+        st.session_state.insights_in_progress = True
+        st.session_state.progress_status = ["waiting"] * len(tab_names)
+        st.session_state.completed_tabs = set()
+        st.session_state.current_processing_tab = 0  # Start with the first tab
+        st.session_state.current_tab_index = 0  # Start with the first tab
+        st.rerun()  # Trigger a rerun to start the process
+        
+    # Add custom CSS for the segmented progress bar
+    st.markdown("""
+    <style>
+    .progress-container {
+        margin-top: 20px;
+        margin-bottom: 20px;
+    }
+    .progress-header {
+        font-size: 0.9rem;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    .segments-container {
+        display: flex;
+        height: 12px;
+        width: 100%;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .segment {
+        flex: 1;
+        height: 100%;
+        margin: 0 1px;
+    }
+    .not-started {
+        background-color: #ffebeb;  /* light pink for not started */
+    }
+    .waiting {
+        background-color: #ffcccb;  /* Light red for waiting */
+    }
+    .processing {
+        background-color: #FF7417;  /* Orange for processing (Imperial Brands color) */
+        animation: pulse 1.5s infinite;
+    }
+    .completed {
+        background-color: #5aac90;  /* Green for completed */
+    }
+    .segment-labels {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 5px;
+        font-size: 0.7rem;
+    }
+    .segment-label {
+        flex: 1;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding: 0 1px;
+    }
+    @keyframes pulse {
+        0% { opacity: 0.5; }
+        50% { opacity: 1; }
+        100% { opacity: 0.5; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Display the segmented progress bar
+    st.markdown("<div class='progress-container'>", unsafe_allow_html=True)
+    
+    # Create the segments container
+    segments_html = "<div class='segments-container'>"
+    for i in range(len(tab_names)):
+        # Determine the status class
+        if i in st.session_state.completed_tabs:
+            status_class = "completed"
+        elif i == st.session_state.current_processing_tab and st.session_state.insights_in_progress:
+            status_class = "processing"
+        elif i > st.session_state.current_processing_tab and st.session_state.insights_in_progress:
+            status_class = "waiting"
+        else:
+            status_class = "not-started"
+            
+        # Add segment
+        segments_html += f"<div class='segment {status_class}'></div>"
+    
+    segments_html += "</div>"
+    
+    st.markdown(segments_html, unsafe_allow_html=True)
+    
+    # Add segment labels
+    # label_html = "<div class='segment-labels'>"
+    # for tab in tab_names:
+    #     label_html += f"<div class='segment-label'>{tab}</div>"
+    # label_html += "</div>"
+    # st.markdown(label_html, unsafe_allow_html=True)
+    
+    # Add a text indicator of what's being processed
+    if st.session_state.insights_in_progress and st.session_state.current_processing_tab >= 0:
+        current_tab = tab_names[st.session_state.current_processing_tab]
+        st.markdown(f"<p style='text-align: center; margin-top: 0px; font-size: 0.8rem;'>Processing: {current_tab}</p>", unsafe_allow_html=True)
+    elif st.session_state.completed_tabs and len(st.session_state.completed_tabs) == len(tab_names):
+        st.markdown("<p style='text-align: center; margin-top: 0px; color: green; font-size: 0.8rem;'>✓ All insights generated!</p>", unsafe_allow_html=True)
+        
+    st.markdown("</div>", unsafe_allow_html=True)
+    
     
     st.subheader("Filters")
     
@@ -1352,608 +730,784 @@ matching_docs = count_matching_documents(
 
 # Display total number of documents selected in the sidebar
 with st.sidebar:
-    st.markdown("---")
     st.subheader(f"Total Documents: {len(matching_docs)}")
 
 # Tabs
-tabs = st.tabs(["Overview", "Adverse Events", "Perceived Benefits", "Oral Health", "Research Trends", 
+tabs = st.tabs(["Overview", "Adverse Events", "Perceived Benefits", "Health Outcomes", "Research Trends", 
                 "Contradictions & Conflicts", "Bias in Research", "Publication Level"])
 
-# Overview Tab
+# Overview Tab (Tab 0)
 with tabs[0]:
     if matching_docs:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            # Call the GPT-4o insights function
-            display_gpt4o_insights(df, matching_docs)
             
+            overview_prompt = """Focus on being specific, evidence-based, and highlighting both consensus and contradictions across studies.
+        
+                Pay special attention to:
+                1. Key conclusions and novel findings
+                2. Health outcomes and causal mechanisms 
+                3. R&D implications
+                4. Methodological strengths and limitations
+                5. Areas of consensus vs. areas of contradiction"""
+
+
+            categories_to_extract = {
+            "Key Findings": [
+                "main_conclusions", "primary_outcomes", "secondary_outcomes", 
+                "novel_findings", "limitations", "generalizability", 
+                "future_research_suggestions", "contradictions"
+            ],
+            "Causal Mechanisms": [
+                "chemicals_implicated", "biological_pathways", 
+                "device_factors", "usage_pattern_factors"
+            ],
+            "R&D Insights": [
+                "harmful_ingredients", "device_design_implications", 
+                "comparative_benefits", "potential_innovation_areas",
+                "operating_parameters"
+            ],
+            "Study Characteristics": [
+                "primary_type", "secondary_features", "time_periods",
+                "total_size", "user_groups", "e_cigarette_specifications",
+                "data_collection_method"
+            ],
+            "Health Outcomes": [
+                "respiratory_effects", "cardiovascular_effects", "oral_health",
+                "neurological_effects", "psychiatric_effects", "cancer_risk",
+                "developmental_effects", "other_health_outcomes"
+            ]
+        }
+            
+            display_insights(
+                df, 
+                matching_docs,
+                section_title="Research Insights",
+                topic_name="Overall",
+                categories_to_extract=categories_to_extract,
+                custom_focus_prompt=overview_prompt,
+                tab_index=0  # Add tab index
+            )
         
         with col2:
-            st.subheader("Publication Distribution")
+            # Use the imported function to display visualizations
+            display_publication_distribution(df, matching_docs)
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+        
+
+# Tab 1 (Adverse Events)
+with tabs[1]:
+    if matching_docs:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
             
-            # Create radio buttons arranged horizontally for chart selection
-            chart_type = st.radio(
-                "Select Chart Type:",
-                ["Overall", "Yearly", "Pub. Type", "Funding", "Study Design", "Country"],
-                horizontal=True
+            adverse_events_prompt = """Focus on analyzing the adverse health effects of e-cigarettes with attention to severity, frequency, and biological mechanisms.
+        
+                Pay special attention to:
+                1. Most commonly reported adverse events and their prevalence
+                2. Severity and duration of adverse effects
+                3. Specific chemicals or device factors linked to adverse outcomes
+                4. Comparison of adverse events between different user groups and device types
+                5. Evidence strength for causal relationships
+                6. Clinical significance of reported adverse events"""
+
+
+            # Define categories specific to adverse events
+            adverse_events_categories = {
+                "Health Outcomes": [
+                    "respiratory_effects", "cardiovascular_effects", 
+                    "neurological_effects", "psychiatric_effects", 
+                    "other_health_outcomes"
+                ],
+                "Self-Reported Effects": [
+                    "oral_events.sore_dry_mouth", "oral_events.cough", 
+                    "respiratory_events.breathing_difficulties", "respiratory_events.chest_pain",
+                    "neurological_events.headache", "neurological_events.dizziness",
+                    "cardiovascular_events.heart_palpitation", "total_adverse_events"
+                ],
+                "Causal Mechanisms": [
+                    "chemicals_implicated", "biological_pathways",
+                    "device_factors", "usage_pattern_factors"
+                ],
+                "Key Findings": [
+                    "main_conclusions", "limitations", "novel_findings"
+                ]
+            }
+            
+            display_insights(
+                df, 
+                matching_docs,
+                section_title="Adverse Events Analysis",
+                topic_name="Adverse Events",
+                categories_to_extract=adverse_events_categories,
+                custom_focus_prompt=adverse_events_prompt,
+                tab_index=1  # Add tab index
             )
             
-            pub_df = get_publications_by_year(matching_docs)
-            
-            if not pub_df.empty:
-                if chart_type == "Overall":
-                    display_pyecharts_sunburst(df, matching_docs)
-                    
-                elif chart_type == "Yearly":
-               
-                    # Original yearly bar chart
-                    fig = px.bar(
-                        pub_df,
-                        x='Year',
-                        y='Count',
-                        title="Publications by Year",
-                        labels={'Count': 'Number of Publications', 'Year': 'Year'},
-                        color_discrete_sequence=['#f07300']
-                    )
-                    
-                    fig.update_layout(height=500)
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                elif chart_type == "Pub. Type":
-                    # Create stacked chart for Publication Type by year
-                    pub_types_by_year = {}
-                    
-                    if 'publication_type' in df['Category'].values:
-                        year_rows = df[df['Category'] == 'publication_year']
-                        type_rows = df[df['Category'] == 'publication_type']
-                        
-                        for doc_col in matching_docs:
-                            year_value = year_rows[doc_col].iloc[0] if not year_rows.empty else None
-                            pub_type = type_rows[doc_col].iloc[0] if not type_rows.empty else None
-                            
-                            if year_value and pub_type and not pd.isna(year_value) and not pd.isna(pub_type):
-                                try:
-                                    year = int(float(year_value))
-                                    if year not in pub_types_by_year:
-                                        pub_types_by_year[year] = {}
-                                    
-                                    if pub_type in pub_types_by_year[year]:
-                                        pub_types_by_year[year][pub_type] += 1
-                                    else:
-                                        pub_types_by_year[year][pub_type] = 1
-                                        
-                                except (ValueError, TypeError):
-                                    continue
-                    
-                    if pub_types_by_year:
-                        # Get the top 5 publication types
-                        all_types = {}
-                        for year_data in pub_types_by_year.values():
-                            for pub_type, count in year_data.items():
-                                if pub_type in all_types:
-                                    all_types[pub_type] += count
-                                else:
-                                    all_types[pub_type] = count
-                        
-                        top_5_types = sorted(all_types.items(), key=lambda x: x[1], reverse=True)[:5]
-                        top_5_type_names = [t[0] for t in top_5_types]
-                        
-                        # Prepare data for plotting
-                        years = sorted(pub_types_by_year.keys())
-                        data_for_plot = []
-                        
-                        for year in years:
-                            year_total = sum(pub_types_by_year[year].values())
-                            row = {'Year': year, 'Total': year_total}
-                            
-                            # Add top 5 types
-                            for type_name in top_5_type_names:
-                                row[type_name] = pub_types_by_year[year].get(type_name, 0)
-                            
-                            # Add "Others" category
-                            others_count = 0
-                            for type_name, count in pub_types_by_year[year].items():
-                                if type_name not in top_5_type_names:
-                                    others_count += count
-                            
-                            row['Others'] = others_count
-                            data_for_plot.append(row)
-                        
-                        plot_df = pd.DataFrame(data_for_plot)
-                        
-                        # Create 100% stacked chart
-                        fig = make_subplots(specs=[[{"secondary_y": True}]])
-                        
-                        # Calculate percentages for each publication type
-                        for year_row in plot_df.to_dict('records'):
-                            year = year_row['Year']
-                            total = year_row['Total']
-                            running_total = 0
-                            
-                            # Add top 5 types
-                            for i, type_name in enumerate(top_5_type_names):
-                                value = year_row.get(type_name, 0)
-                                percentage = (value / total * 100) if total > 0 else 0
-                                fig.add_trace(
-                                    go.Bar(
-                                        x=[year],
-                                        y=[percentage],
-                                        name=type_name,
-                                        marker_color=px.colors.qualitative.Set2[i % len(px.colors.qualitative.Set2)],
-                                        showlegend=True if year == years[0] else False,
-                                        offsetgroup="A"
-                                    )
-                                )
-                                running_total += percentage
-                            
-                            # Add "Others" category
-                            others_pct = (year_row.get('Others', 0) / total * 100) if total > 0 else 0
-                            if others_pct > 0:
-                                fig.add_trace(
-                                    go.Bar(
-                                        x=[year],
-                                        y=[others_pct],
-                                        name="Others",
-                                        marker_color='lightgray',
-                                        showlegend=True if year == years[0] else False,
-                                        offsetgroup="A"
-                                    )
-                                )
-                        
-                        # Add total publications line chart (secondary y-axis)
-                        fig.add_trace(
-                            go.Scatter(
-                                x=plot_df['Year'],
-                                y=plot_df['Total'],
-                                name="Total Publications",
-                                line=dict(color='red', width=2),
-                                mode='lines+markers'
-                            ),
-                            secondary_y=True
-                        )
-                        
-                        # Update layout
-                        fig.update_layout(
-                            title="Publication Types by Year (Top 5)",
-                            barmode='stack',
-                            height=500,
-                            yaxis=dict(
-                                title="Percentage (%)",
-                                range=[0, 100]
-                            ),
-                            yaxis2=dict(
-                                title="Total Publications",
-                                titlefont=dict(color="red"),
-                                tickfont=dict(color="red")
-                            ),
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=1.02,
-                                xanchor="right",
-                                x=1
-                            )
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("Publication type data not available for the filtered documents")
-                
-                elif chart_type == "Funding":
-                    # Create stacked chart for Funding Source by year
-                    funding_by_year = {}
-                    
-                    if 'type' in df['SubCategory'].values:
-                        year_rows = df[df['Category'] == 'publication_year']
-                        funding_rows = df[df['SubCategory'] == 'type']
-                        
-                        for doc_col in matching_docs:
-                            year_value = year_rows[doc_col].iloc[0] if not year_rows.empty else None
-                            funding = funding_rows[doc_col].iloc[0] if not funding_rows.empty else None
-                            
-                            if year_value and funding and not pd.isna(year_value) and not pd.isna(funding):
-                                try:
-                                    year = int(float(year_value))
-                                    if year not in funding_by_year:
-                                        funding_by_year[year] = {}
-                                    
-                                    if funding in funding_by_year[year]:
-                                        funding_by_year[year][funding] += 1
-                                    else:
-                                        funding_by_year[year][funding] = 1
-                                        
-                                except (ValueError, TypeError):
-                                    continue
-                    
-                    if funding_by_year:
-                        # Get the top 5 funding sources
-                        all_sources = {}
-                        for year_data in funding_by_year.values():
-                            for source, count in year_data.items():
-                                if source in all_sources:
-                                    all_sources[source] += count
-                                else:
-                                    all_sources[source] = count
-                        
-                        top_5_sources = sorted(all_sources.items(), key=lambda x: x[1], reverse=True)[:5]
-                        top_5_source_names = [s[0] for s in top_5_sources]
-                        
-                        # Prepare data for plotting
-                        years = sorted(funding_by_year.keys())
-                        data_for_plot = []
-                        
-                        for year in years:
-                            year_total = sum(funding_by_year[year].values())
-                            row = {'Year': year, 'Total': year_total}
-                            
-                            # Add top 5 sources
-                            for source_name in top_5_source_names:
-                                row[source_name] = funding_by_year[year].get(source_name, 0)
-                            
-                            # Add "Others" category
-                            others_count = 0
-                            for source_name, count in funding_by_year[year].items():
-                                if source_name not in top_5_source_names:
-                                    others_count += count
-                            
-                            row['Others'] = others_count
-                            data_for_plot.append(row)
-                        
-                        plot_df = pd.DataFrame(data_for_plot)
-                        
-                        # Create 100% stacked chart
-                        fig = make_subplots(specs=[[{"secondary_y": True}]])
-                        
-                        # Calculate percentages for each funding source
-                        for year_row in plot_df.to_dict('records'):
-                            year = year_row['Year']
-                            total = year_row['Total']
-                            
-                            # Add top 5 sources
-                            for i, source_name in enumerate(top_5_source_names):
-                                value = year_row.get(source_name, 0)
-                                percentage = (value / total * 100) if total > 0 else 0
-                                fig.add_trace(
-                                    go.Bar(
-                                        x=[year],
-                                        y=[percentage],
-                                        name=source_name,
-                                        marker_color=px.colors.qualitative.Pastel[i % len(px.colors.qualitative.Pastel)],
-                                        showlegend=True if year == years[0] else False,
-                                        offsetgroup="A"
-                                    )
-                                )
-                            
-                            # Add "Others" category
-                            others_pct = (year_row.get('Others', 0) / total * 100) if total > 0 else 0
-                            if others_pct > 0:
-                                fig.add_trace(
-                                    go.Bar(
-                                        x=[year],
-                                        y=[others_pct],
-                                        name="Others",
-                                        marker_color='lightgray',
-                                        showlegend=True if year == years[0] else False,
-                                        offsetgroup="A"
-                                    )
-                                )
-                        
-                        # Add total publications line chart (secondary y-axis)
-                        fig.add_trace(
-                            go.Scatter(
-                                x=plot_df['Year'],
-                                y=plot_df['Total'],
-                                name="Total Publications",
-                                line=dict(color='red', width=2),
-                                mode='lines+markers'
-                            ),
-                            secondary_y=True
-                        )
-                        
-                        # Update layout
-                        fig.update_layout(
-                            title="Funding Sources by Year (Top 5)",
-                            barmode='stack',
-                            height=500,
-                            yaxis=dict(
-                                title="Percentage (%)",
-                                range=[0, 100]
-                            ),
-                            yaxis2=dict(
-                                title="Total Publications",
-                                titlefont=dict(color="red"),
-                                tickfont=dict(color="red")
-                            ),
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=1.02,
-                                xanchor="right",
-                                x=1
-                            )
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("Funding source data not available for the filtered documents")
-                
-                elif chart_type == "Study Design":
-                    # Create stacked chart for Study Design by year
-                    design_by_year = {}
-                    
-                    if 'primary_type' in df['SubCategory'].values:
-                        year_rows = df[df['Category'] == 'publication_year']
-                        design_rows = df[df['SubCategory'] == 'primary_type']
-                        
-                        for doc_col in matching_docs:
-                            year_value = year_rows[doc_col].iloc[0] if not year_rows.empty else None
-                            design = design_rows[doc_col].iloc[0] if not design_rows.empty else None
-                            
-                            if year_value and design and not pd.isna(year_value) and not pd.isna(design):
-                                try:
-                                    year = int(float(year_value))
-                                    if year not in design_by_year:
-                                        design_by_year[year] = {}
-                                    
-                                    if design in design_by_year[year]:
-                                        design_by_year[year][design] += 1
-                                    else:
-                                        design_by_year[year][design] = 1
-                                        
-                                except (ValueError, TypeError):
-                                    continue
-                    
-                    if design_by_year:
-                        # Get the top 5 study designs
-                        all_designs = {}
-                        for year_data in design_by_year.values():
-                            for design, count in year_data.items():
-                                if design in all_designs:
-                                    all_designs[design] += count
-                                else:
-                                    all_designs[design] = count
-                        
-                        top_5_designs = sorted(all_designs.items(), key=lambda x: x[1], reverse=True)[:5]
-                        top_5_design_names = [d[0] for d in top_5_designs]
-                        
-                        # Prepare data for plotting
-                        years = sorted(design_by_year.keys())
-                        data_for_plot = []
-                        
-                        for year in years:
-                            year_total = sum(design_by_year[year].values())
-                            row = {'Year': year, 'Total': year_total}
-                            
-                            # Add top 5 designs
-                            for design_name in top_5_design_names:
-                                row[design_name] = design_by_year[year].get(design_name, 0)
-                            
-                            # Add "Others" category
-                            others_count = 0
-                            for design_name, count in design_by_year[year].items():
-                                if design_name not in top_5_design_names:
-                                    others_count += count
-                            
-                            row['Others'] = others_count
-                            data_for_plot.append(row)
-                        
-                        plot_df = pd.DataFrame(data_for_plot)
-                        
-                        # Create 100% stacked chart
-                        fig = make_subplots(specs=[[{"secondary_y": True}]])
-                        
-                        # Calculate percentages for each study design
-                        for year_row in plot_df.to_dict('records'):
-                            year = year_row['Year']
-                            total = year_row['Total']
-                            
-                            # Add top 5 designs
-                            for i, design_name in enumerate(top_5_design_names):
-                                value = year_row.get(design_name, 0)
-                                percentage = (value / total * 100) if total > 0 else 0
-                                fig.add_trace(
-                                    go.Bar(
-                                        x=[year],
-                                        y=[percentage],
-                                        name=design_name,
-                                        marker_color=px.colors.qualitative.Dark2[i % len(px.colors.qualitative.Dark2)],
-                                        showlegend=True if year == years[0] else False,
-                                        offsetgroup="A"
-                                    )
-                                )
-                            
-                            # Add "Others" category
-                            others_pct = (year_row.get('Others', 0) / total * 100) if total > 0 else 0
-                            if others_pct > 0:
-                                fig.add_trace(
-                                    go.Bar(
-                                        x=[year],
-                                        y=[others_pct],
-                                        name="Others",
-                                        marker_color='lightgray',
-                                        showlegend=True if year == years[0] else False,
-                                        offsetgroup="A"
-                                    )
-                                )
-                        
-                        # Add total publications line chart (secondary y-axis)
-                        fig.add_trace(
-                            go.Scatter(
-                                x=plot_df['Year'],
-                                y=plot_df['Total'],
-                                name="Total Publications",
-                                line=dict(color='red', width=2),
-                                mode='lines+markers'
-                            ),
-                            secondary_y=True
-                        )
-                        
-                        # Update layout
-                        fig.update_layout(
-                            title="Study Designs by Year (Top 5)",
-                            barmode='stack',
-                            height=500,
-                            yaxis=dict(
-                                title="Percentage (%)",
-                                range=[0, 100]
-                            ),
-                            yaxis2=dict(
-                                title="Total Publications",
-                                titlefont=dict(color="red"),
-                                tickfont=dict(color="red")
-                            ),
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=1.02,
-                                xanchor="right",
-                                x=1
-                            )
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("Study design data not available for the filtered documents")
-            
-                elif chart_type == "Country":
-                    
-                    # Extract country data from matching documents
-                    country_data = get_countries_by_study(df, matching_docs)
-                    
-                    if country_data:
-                        # Create and display the map (full width)
-                        country_map = create_country_choropleth(country_data)
-                        folium_static(country_map, width=690, height=375)
-                        
-                        # Add collapsible section with top countries
-                        with st.expander("View Top Countries by Study Count", expanded=False):
-                            # Show a table of top countries with percentiles
-                            
-                            # Sort countries by count in descending order
-                            sorted_countries = sorted(country_data.items(), key=lambda x: x[1], reverse=True)
-                            
-                            # Calculate percentiles for display
-                            country_counts = [count for _, count in sorted_countries]
-                            total_countries = len(country_counts)
-                            
-                            # Create a formatted table
-                            table_data = []
-                            for i, (country, count) in enumerate(sorted_countries[:12], 1):
-                                # Calculate percentile rank
-                                table_data.append({
-                                    "Sr. No.": i,
-                                    "Country": country,
-                                    "Studies": count
-                                })
-                            
-                            # Display as a DataFrame
-                            table_df = pd.DataFrame(table_data)
-                            st.dataframe(table_df, use_container_width=True, hide_index=True)
-                            
-                            # Show total unique countries
-                            st.markdown(f"**Total unique countries in dataset**: {len(country_data)}")
-                    else:
-                        st.info("No country data available for the filtered documents.")
+        with col2:
+            st.info("Add visualizations for adverse events here")
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+
+
+# Tab 2 (Perceived Benefits)
+with tabs[2]:
+    if matching_docs:
+        col1, col2 = st.columns([1, 1])
         
+        with col1:
+            
+            perceived_benefits_prompt = """Focus on analyzing reported benefits of e-cigarette use with attention to objective measurements and subjective experiences.
         
+                Pay special attention to:
+                1. Most commonly reported health improvements and their prevalence
+                2. Quality of life changes and their domains (physical, mental, social)
+                3. Comparison of benefits between different user groups and device types
+                4. Relative benefits compared to traditional cigarettes and other nicotine products
+                5. Temporal patterns in perceived benefits (immediate vs. long-term)
+                6. Correlation between user characteristics and reported benefits"""
+
+
+            # Define categories specific to perceived benefits
+            perceived_benefits_categories = {
+                "Self-Reported Effects": [
+                    "perceived_health_improvements.sensory.smell", 
+                    "perceived_health_improvements.sensory.taste",
+                    "perceived_health_improvements.physical.breathing",
+                    "perceived_health_improvements.physical.physical_status",
+                    "perceived_health_improvements.physical.stamina",
+                    "perceived_health_improvements.mental.mood",
+                    "perceived_health_improvements.mental.sleep_quality",
+                    "perceived_health_improvements.quality_of_life"
+                ],
+                "Behavioral Patterns": [
+                    "smoking_cessation.success_rates",
+                    "smoking_cessation.comparison_to_other_methods",
+                    "reasons_for_use"
+                ],
+                "R&D Insights": [
+                    "comparative_benefits",
+                    "consumer_experience_factors"
+                ],
+                "Key Findings": [
+                    "main_conclusions", "novel_findings"
+                ]
+            }
+            
+            display_insights(
+                df, 
+                matching_docs,
+                section_title="Perceived Benefits Analysis",
+                topic_name="Perceived Benefits",
+                categories_to_extract=perceived_benefits_categories,
+                custom_focus_prompt=perceived_benefits_prompt,
+                tab_index=2  # Add tab index
+            )
+            
+        with col2:
+            st.info("Add visualizations for perceived benefits here")
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+
+
+# Tab 3 (Health Outcomes)
+with tabs[3]:
+    if matching_docs:
+        # Initialize or get session state for selected health area
+        if 'selected_health_area' not in st.session_state:
+            st.session_state.selected_health_area = "oral"  # Default to oral health
+        
+        # Create keys for storing insights for each health area
+        oral_insights_key = "generated_oral_health_insights"
+        respiratory_insights_key = "generated_respiratory_health_insights"
+        cardiovascular_insights_key = "generated_cardiovascular_health_insights"
+        
+        # Create a container for the entire tab with custom CSS for the anatomy diagram only
+        st.markdown("""
+        <style>
+        /* Make the anatomy diagram larger */
+        .anatomy-diagram {
+            width: 100%;
+            height: 450px;
+        }
+        
+        /* Highlight boxes for different health sections */
+        .highlight-box {
+            border: 2px solid transparent;
+            border-radius: 6px;
+            padding: 4px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Functions to handle health area selection
+        def select_oral_health():
+            st.session_state.selected_health_area = "oral"
+            
+        def select_respiratory_health():
+            st.session_state.selected_health_area = "lung"
+            
+        def select_cardiovascular_health():
+            st.session_state.selected_health_area = "heart"
+        
+        # Create a row with two columns - one for content, one for anatomy
+        col1, col2 = st.columns([1.5, 1])
+        
+        # Area for content
+        with col1:
+            # Button row for selecting health area - wrapped in a div with class for CSS targeting
+            st.markdown('<div class="health-tab-buttons">', unsafe_allow_html=True)
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            
+            with btn_col1:
+                oral_btn = st.button("Oral Health", 
+                                    on_click=select_oral_health, 
+                                    use_container_width=True,
+                                    key="oral_health_btn")
+                
+            with btn_col2:
+                respiratory_btn = st.button("Respiratory Health", 
+                                          on_click=select_respiratory_health, 
+                                          use_container_width=True,
+                                          key="respiratory_health_btn")
+                
+            with btn_col3:
+                cardiovascular_btn = st.button("Cardiovascular Health", 
+                                             on_click=select_cardiovascular_health, 
+                                             use_container_width=True,
+                                             key="cardiovascular_health_btn")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Use JavaScript to style the active button
+            active_area = st.session_state.selected_health_area
+            if active_area == "oral":
+                st.markdown("""
+                <script>
+                    document.querySelector('.health-tab-buttons [data-testid="stButton"] button[kind="secondary"]').classList.add('active');
+                </script>
+                """, unsafe_allow_html=True)
+            elif active_area == "lung":
+                st.markdown("""
+                <script>
+                    document.querySelectorAll('.health-tab-buttons [data-testid="stButton"] button[kind="secondary"]')[1].classList.add('active');
+                </script>
+                """, unsafe_allow_html=True)
+            elif active_area == "heart":
+                st.markdown("""
+                <script>
+                    document.querySelectorAll('.health-tab-buttons [data-testid="stButton"] button[kind="secondary"]')[2].classList.add('active');
+                </script>
+                """, unsafe_allow_html=True)
+            
+            # Content based on selected health area
+            if st.session_state.selected_health_area == "oral":
+                oral_health_prompt = """Focus on analyzing the specific impacts of e-cigarettes on oral health with attention to clinical and self-reported outcomes.
+        
+                Pay special attention to:
+                1. Effects on periodontal health, tooth structure, and oral mucosa
+                2. Oral biomarkers and inflammatory responses
+                3. Comparison with traditional smoking's oral health impacts
+                4. Device and e-liquid factors that influence oral health outcomes
+                5. Time-dependent changes in oral health metrics
+                6. Clinical significance of observed oral health effects"""
+
+                # Define categories specific to oral health
+                oral_health_categories = {
+                    "Health Outcomes": [
+                        "oral_health.periodontal_health", 
+                        "oral_health.caries_risk",
+                        "oral_health.oral_mucosal_changes",
+                        "oral_health.inflammatory_biomarkers",
+                        "oral_health.other_oral_effects"
+                    ],
+                    "Self-Reported Effects": [
+                        "adverse_events.oral_events.sore_dry_mouth",
+                        "adverse_events.oral_events.mouth_tongue_sores",
+                        "adverse_events.oral_events.gingivitis",
+                        "adverse_events.oral_events.other_oral_events"
+                    ],
+                    "Causal Mechanisms": [
+                        "chemicals_implicated", 
+                        "biological_pathways"
+                    ],
+                    "Key Findings": [
+                        "main_conclusions", 
+                        "novel_findings"
+                    ]
+                }
+                
+                # Display insights for oral health
+                display_insights(
+                    df, 
+                    matching_docs,
+                    section_title="Oral Health Findings",
+                    topic_name="Oral Health",
+                    categories_to_extract=oral_health_categories,
+                    custom_focus_prompt=oral_health_prompt,
+                    tab_index=3,
+                    height=430
+                )
+                
+            elif st.session_state.selected_health_area == "lung":
+                respiratory_prompt = """Focus on analyzing the specific impacts of e-cigarettes on respiratory health with attention to clinical outcomes, biomarkers, and patient experiences.
+            
+                Pay special attention to:
+                1. Impacts on lung function and respiratory symptoms
+                2. Specific respiratory conditions (asthma, COPD, wheezing)
+                3. Biomarkers of respiratory inflammation or damage
+                4. Comparison with traditional smoking's respiratory impacts
+                5. Device and e-liquid factors influencing respiratory outcomes
+                6. Time-dependent changes in respiratory health metrics"""
+
+                # Categories specific to respiratory health
+                respiratory_categories = {
+                    "Health Outcomes": [
+                        "respiratory_effects.measured_outcomes", 
+                        "respiratory_effects.findings.description",
+                        "respiratory_effects.findings.comparative_results",
+                        "respiratory_effects.specific_conditions.asthma",
+                        "respiratory_effects.specific_conditions.copd",
+                        "respiratory_effects.specific_conditions.wheezing",
+                        "respiratory_effects.specific_conditions.other_conditions",
+                        "respiratory_effects.biomarkers",
+                        "respiratory_effects.lung_function_tests.tests_performed",
+                        "respiratory_effects.lung_function_tests.results"
+                    ],
+                    "Self-Reported Effects": [
+                        "adverse_events.respiratory_events.breathing_difficulties",
+                        "adverse_events.respiratory_events.chest_pain",
+                        "adverse_events.respiratory_events.other_respiratory_events",
+                        "adverse_events.oral_events.cough"
+                    ],
+                    "Causal Mechanisms": [
+                        "chemicals_implicated", 
+                        "biological_pathways"
+                    ],
+                    "Key Findings": [
+                        "main_conclusions", 
+                        "novel_findings"
+                    ]
+                }
+                
+                # Display insights for respiratory health
+                display_insights(
+                    df, 
+                    matching_docs,
+                    section_title="Respiratory Health Findings",
+                    topic_name="Respiratory Health",
+                    categories_to_extract=respiratory_categories,
+                    custom_focus_prompt=respiratory_prompt,
+                    tab_index=3,
+                    height=430
+                )
+                
+            elif st.session_state.selected_health_area == "heart":
+                cardiovascular_prompt = """Focus on analyzing the specific impacts of e-cigarettes on cardiovascular health with attention to clinical measurements and physiological effects.
+            
+                Pay special attention to:
+                1. Effects on heart rate, blood pressure, and vascular function
+                2. Cardiovascular biomarkers and inflammatory responses
+                3. Comparison with traditional smoking's cardiovascular impacts
+                4. Device features and chemical constituents affecting cardiovascular outcomes
+                5. Acute versus chronic cardiovascular effects
+                6. Cardiovascular risk assessment for different user populations"""
+
+                # Categories specific to cardiovascular health
+                cardiovascular_categories = {
+                    "Health Outcomes": [
+                        "cardiovascular_effects.measured_outcomes", 
+                        "cardiovascular_effects.findings.description",
+                        "cardiovascular_effects.findings.comparative_results",
+                        "cardiovascular_effects.blood_pressure",
+                        "cardiovascular_effects.heart_rate",
+                        "cardiovascular_effects.biomarkers"
+                    ],
+                    "Self-Reported Effects": [
+                        "adverse_events.cardiovascular_events.heart_palpitation",
+                        "adverse_events.cardiovascular_events.other_cardiovascular_events"
+                    ],
+                    "Causal Mechanisms": [
+                        "chemicals_implicated", 
+                        "biological_pathways"
+                    ],
+                    "Key Findings": [
+                        "main_conclusions", 
+                        "novel_findings"
+                    ]
+                }
+                
+                # Display insights for cardiovascular health
+                display_insights(
+                    df, 
+                    matching_docs,
+                    section_title="Cardiovascular Health Findings",
+                    topic_name="Cardiovascular Health",
+                    categories_to_extract=cardiovascular_categories,
+                    custom_focus_prompt=cardiovascular_prompt,
+                    tab_index=3,
+                    height=430
+                )
+        
+        # Anatomy diagram with server-side controlled highlighting
+        with col2:
+            # Fetch SVG content
+            @st.cache_data
+            def get_svg_content():
+                """Fetch SVG content from echarts example"""
+                url = "https://echarts.apache.org/examples/data/asset/geo/Veins_Medical_Diagram_clip_art.svg"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    return response.text
                 else:
-                    st.info("Publication year data not available for the filtered documents")
+                    st.error(f"Failed to fetch SVG: {response.status_code}")
+                    return None
+        
+            # Get SVG content
+            svg_content = get_svg_content()
+        
+            if svg_content:
+                # Create HTML for the anatomy diagram with the current highlighted organ
+                html_template = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+                    <style>
+                        html, body {{
+                            margin: 0;
+                            padding: 0;
+                            width: 100%;
+                            height: 100%;
+                            overflow: hidden;
+                        }}
+                        #main {{
+                            width: 100%;
+                            height: 100%;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div id="main"></div>
+                    <script>
+                        // Initialize chart
+                        var chartDom = document.getElementById('main');
+                        var myChart = echarts.init(chartDom);
+                        
+                        // Register the SVG map
+                        echarts.registerMap('organ_diagram', {{
+                            svg: `{svg_content}`
+                        }});
+                        
+                        var option = {{
+                            tooltip: {{
+                                formatter: function(params) {{
+                                    switch(params.name) {{
+                                        case 'lung':
+                                            return 'Lungs - Respiratory System';
+                                        case 'heart':
+                                            return 'Heart - Cardiovascular System';
+                                        case 'oral':
+                                            return 'Oral Cavity - Oral Health';
+                                        default:
+                                            return params.name;
+                                    }}
+                                }}
+                            }},
+                            geo: {{
+                                map: 'organ_diagram',
+                                roam: false,
+                                emphasis: {{
+                                    focus: 'self',
+                                    itemStyle: {{
+                                        color: '#ff3333',  // Highlighting color
+                                        borderWidth: 2,
+                                        borderColor: '#ff0000',
+                                        shadowBlur: 5,
+                                        shadowColor: 'rgba(255, 0, 0, 0.5)'
+                                    }}
+                                }}
+                            }}
+                        }};
+                        
+                        myChart.setOption(option);
+                        
+                        // Set initial highlighting based on server-side state
+                        const highlightedOrgan = "{st.session_state.selected_health_area}";
+                        
+                        if (highlightedOrgan && highlightedOrgan !== "None") {{
+                            // First clear any existing highlights
+                            myChart.dispatchAction({{
+                                type: 'downplay',
+                                geoIndex: 0
+                            }});
+                            
+                            // Then highlight the requested organ
+                            myChart.dispatchAction({{
+                                type: 'highlight',
+                                geoIndex: 0,
+                                name: highlightedOrgan
+                            }});
+                        }}
+                        
+                        // Handle window resize
+                        window.addEventListener('resize', function() {{
+                            myChart.resize();
+                        }});
+                    </script>
+                </body>
+                </html>
+                """
+                        
+                # Add a title for the anatomy visualization
+                st.markdown("<h4 style='text-align: center; margin-top: -50px;'></h4>", unsafe_allow_html=True)
+                
+                # Display the anatomy diagram
+                components_container = st.container()
+                with components_container:
+                    st.components.v1.html(html_template, height=650, scrolling=False)
+                
             else:
-                st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+                st.error("Could not load the anatomy diagram.")
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+        
+
+# Tab 4 (Research Trends)
+with tabs[4]:
+    if matching_docs:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            
+            research_trends_prompt = """Focus on analyzing how e-cigarette research has evolved over time and identifying emerging areas of focus.
+        
+                Pay special attention to:
+                1. Shifts in research methodologies and study designs
+                2. Evolution of research questions and hypotheses over time
+                3. Emerging product trends and their research implications
+                4. Gaps in current research and suggested future directions
+                5. Geographic and institutional patterns in research focus
+                6. Changes in user behavior patterns over time"""
 
 
-with tabs[1]:  # Adverse Events tab
-    st.subheader("Adverse Events")
-    st.info("This section will display insights about adverse events reported in the research.")
+            # Define categories specific to research trends
+            research_trends_categories = {
+                "Study Characteristics": [
+                    "primary_type", "secondary_features", 
+                    "time_periods", "data_collection_method"
+                ],
+                "Key Findings": [
+                    "future_research_suggestions", "novel_findings"
+                ],
+                "Market Trends": [
+                    "product_characteristics.device_evolution",
+                    "product_characteristics.e_liquid_trends",
+                    "product_characteristics.nicotine_concentration_trends",
+                    "regulatory_impacts"
+                ],
+                "Behavioral Patterns": [
+                    "usage_patterns.transitions",
+                    "product_preferences"
+                ]
+            }
+            
+            display_insights(
+                df, 
+                matching_docs,
+                section_title="Research Trends Analysis",
+                topic_name="Research Trends",
+                categories_to_extract=research_trends_categories,
+                custom_focus_prompt=research_trends_prompt,
+                tab_index=4  # Add tab index
+            )
+            
+        with col2:
+            st.info("Add visualizations for research trends here")
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
-with tabs[2]:  # Perceived Benefits tab
-    st.subheader("Perceived Benefits")
-    st.info("This section will display insights about perceived benefits reported in the research.")
 
-with tabs[3]:  # Oral Health tab
-    st.subheader("Oral Health")
-    st.info("This section will display insights about oral health impacts reported in the research.")
+# Tab 5 (Contradictions & Conflicts)
+with tabs[5]:
+    if matching_docs:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            
+            contradictions_prompt = """Focus on identifying and analyzing contradictory findings, methodological disagreements, and areas of scientific controversy.
+        
+                Pay special attention to:
+                1. Directly conflicting findings between studies
+                2. Methodological differences that may explain contradictions
+                3. Areas where evidence quality is particularly weak or inconsistent
+                4. Funding sources and potential conflicts of interest
+                5. Evolution of contradictions over time (resolving or intensifying)
+                6. Impact of study design on observed outcomes"""
 
-with tabs[4]:  # Research Trends tab
-    st.subheader("Research Trends")
-    st.info("This section will display insights about research trends over time.")
 
-with tabs[5]:  # Contradictions & Conflicts tab
-    st.subheader("Contradictions & Conflicts")
-    st.info("This section will highlight contradictory findings and conflicts in the research.")
+            # Define categories specific to contradictions and conflicts
+            contradictions_categories = {
+                "Key Findings": [
+                    "contradictions.conflicts_with_literature",
+                    "contradictions.internal_contradictions",
+                    "generalizability",
+                    "limitations"
+                ],
+                "Bias Assessment": [
+                    "conflicts_of_interest",
+                    "methodological_concerns",
+                    "overall_quality_assessment"
+                ],
+                "Causal Mechanisms": [
+                    "chemicals_implicated.evidence_strength",
+                    "biological_pathways.evidence_strength"
+                ],
+                "R&D Insights": [
+                    "comparative_benefits.vs_traditional_cigarettes.evidence_strength",
+                    "harmful_ingredients.evidence_strength"
+                ]
+            }
+            
+            display_insights(
+                df, 
+                matching_docs,
+                section_title="Contradictions & Conflicts Analysis",
+                topic_name="Contradictions and Conflicts",
+                categories_to_extract=contradictions_categories,
+                custom_focus_prompt=contradictions_prompt,
+                tab_index=5  # Add tab index
+            )
+            
+        with col2:
+            st.info("Add visualizations for contradictions and conflicts here")
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
-with tabs[6]:  # Bias in Research tab
-    st.subheader("Bias in Research")
-    st.info("This section will analyze potential biases in the research methodologies and funding.")
 
-with tabs[7]:  # Publication Level tab
-    st.subheader("Publication Level")
-    st.info("This section will provide metrics about publication impact and quality.")
+# Tab 6 (Bias in Research)
+with tabs[6]:
+    if matching_docs:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            
+            bias_prompt = """Focus on analyzing potential sources of bias in e-cigarette research and their impact on findings.
+        
+                Pay special attention to:
+                1. Patterns of funding influence on study outcomes
+                2. Selection bias in study populations
+                3. Measurement and reporting biases
+                4. Handling of confounding variables
+                5. Transparency in methods and conflicts disclosure
+                6. Overall quality assessment and methodological rigor"""
 
+
+            # Define categories specific to bias in research
+            bias_categories = {
+                "Bias Assessment": [
+                    "selection_bias", "measurement_bias",
+                    "confounding_factors", "attrition_bias",
+                    "reporting_bias", "conflicts_of_interest",
+                    "methodological_concerns", "overall_quality_assessment"
+                ],
+                "Meta Data": [
+                    "funding_source.type",
+                    "funding_source.specific_entities",
+                    "funding_source.disclosure_statement"
+                ],
+                "Key Findings": [
+                    "limitations", "generalizability"
+                ],
+                "Study Characteristics": [
+                    "statistical_methods.adjustment_factors",
+                    "methodology.control_variables"
+                ]
+            }
+            
+            display_insights(
+                df, 
+                matching_docs,
+                section_title="Bias in Research Analysis",
+                topic_name="Research Bias",
+                categories_to_extract=bias_categories,
+                custom_focus_prompt=bias_prompt,
+                tab_index=6  # Add tab index
+            )
+            
+        with col2:
+            st.info("Add visualizations for bias in research here")
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+
+
+# Tab 7 (Publication Level)
+with tabs[7]:
+    if matching_docs:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            
+            publication_prompt = """Focus on analyzing publication patterns, citation impact, and research quality across e-cigarette literature.
+        
+                Pay special attention to:
+                1. Publication trends across journals and publication types
+                2. Geographic distribution of research
+                3. Methodological quality across publication sources
+                4. Relationship between publication metrics and funding sources
+                5. Evolution of publication volume and focus over time
+                6. Citation patterns and influential studies"""
+
+
+            # Define categories specific to publication level
+            publication_categories = {
+                "Meta Data": [
+                    "publication_type", "journal",
+                    "citation_info", "publication_year",
+                    "country_of_study", "authors"
+                ],
+                "Study Characteristics": [
+                    "sample_characteristics.total_size",
+                    "study_design.primary_type"
+                ],
+                "Key Findings": [
+                    "statistical_summary.primary_outcomes",
+                    "statistical_summary.secondary_outcomes",
+                    "main_conclusions"
+                ],
+                "Bias Assessment": [
+                    "overall_quality_assessment"
+                ]
+            }
+            
+            display_insights(
+                df, 
+                matching_docs,
+                section_title="Publication Level Analysis",
+                topic_name="Publication Metrics",
+                categories_to_extract=publication_categories,
+                custom_focus_prompt=publication_prompt,
+                tab_index=7  # Add tab index
+            )
+            
+        with col2:
+            st.info("Add visualizations for publication metrics here")
+    else:
+        st.warning("No documents match the selected filters. Please adjust your filter criteria.")
+        
+
+st.write("")
 
 # Show document details for debugging
 if st.checkbox("Show Document Details"):
-    st.subheader("Filtered Documents Details")
-    
-    if matching_docs:
-        # Show titles for matching documents
-        titles = []
-        authors = []
-        journals = []
-        years = []
-        
-        title_rows = df[df['Category'] == 'title']
-        author_rows = df[df['Category'] == 'authors']
-        journal_rows = df[df['Category'] == 'journal']
-        year_rows = df[df['Category'] == 'publication_year']
-        
-        for doc in matching_docs:
-            title = title_rows[doc].iloc[0] if not title_rows.empty else "Unknown"
-            author = author_rows[doc].iloc[0] if not author_rows.empty else "Unknown"
-            journal = journal_rows[doc].iloc[0] if not journal_rows.empty else "Unknown"
-            year = year_rows[doc].iloc[0] if not year_rows.empty else "Unknown"
-            
-            titles.append(title if not pd.isna(title) else "Unknown")
-            authors.append(author if not pd.isna(author) else "Unknown")
-            journals.append(journal if not pd.isna(journal) else "Unknown")
-            years.append(year if not pd.isna(year) else "Unknown")
-        
-        doc_details = pd.DataFrame({
-            'Document': matching_docs,
-            'Title': titles,
-            'Authors': authors,
-            'Journal': journals,
-            'Year': years
-        })
-        
-        st.write(doc_details)
-    else:
-        st.write("No documents match the current filters")
+    from data_display_utils import display_document_details
+    display_document_details(df, matching_docs)
 
 # Show raw data if needed
 if st.checkbox("Show Raw Data"):
-    st.subheader("Sample Data")
-    
-    # Calculate the number of non-empty fields for each document
-    doc_columns = df.columns[3:]  # Document columns start from index 3
-    doc_completeness = {}
-    
-    for doc_col in doc_columns:
-        # Count non-empty cells in this document column
-        non_empty_count = df[doc_col].count()
-        doc_completeness[doc_col] = non_empty_count
-    
-    # Sort documents by completeness (number of non-empty fields)
-    sorted_docs = sorted(doc_completeness.items(), key=lambda x: x[1], reverse=True)
-    
-    # Take the top 3 most complete documents
-    top_3_docs = [doc[0] for doc in sorted_docs[:3]]
-    
-    # Display only the necessary columns: Main Category, Category, SubCategory, and the top 3 docs
-    if top_3_docs:
-        display_columns = ['Main Category', 'Category', 'SubCategory'] + top_3_docs
-        st.write(df[display_columns])
-        
-    else:
-        st.write("No document data available")
+    from data_display_utils import display_raw_data
+    display_raw_data(df)
