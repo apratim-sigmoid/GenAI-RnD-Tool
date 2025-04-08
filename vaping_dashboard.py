@@ -745,14 +745,18 @@ with tabs[0]:
     if matching_docs:
         col1, col2 = st.columns([1, 1])
         
-        overview_prompt = """Focus on being specific, evidence-based, and highlighting both consensus and contradictions across studies.
-    
-            Pay special attention to:
-            1. Key conclusions and novel findings
-            2. Health outcomes and causal mechanisms 
-            3. R&D implications
-            4. Methodological strengths and limitations
-            5. Areas of consensus vs. areas of contradiction"""
+        overview_prompt = """As an R&D specialist analyzing e-cigarette research, focus on extracting specific, measurable data points and actionable insights.
+            Avoid generic safety statements and instead provide precise, quantitative data that can inform product development decisions.
+            
+            Key areas to emphasize:
+            1. Specific chemicals/ingredients and their precise concentrations that show improved safety profiles
+            2. Exact device parameters (temperature ranges, wattage levels, coil materials) associated with reduced harmful outputs
+            3. Quantitative comparisons between device generations or design features (provide exact percentages or values)
+            4. Specific flavor compounds and their safety/satisfaction metrics with exact measurements
+            5. Numerical data on user satisfaction correlated with specific product characteristics
+            6. Precise operating parameters that optimize nicotine delivery while minimizing harmful constituents
+            
+            Always prioritize quantitative data and specific technical details that directly enable product improvement."""
 
 
         categories_to_extract = {
@@ -844,15 +848,18 @@ with tabs[1]:
         
         with col1:
             
-            adverse_events_prompt = """Focus on analyzing the adverse health effects of e-cigarettes with attention to severity, frequency, and biological mechanisms.
-        
-                Pay special attention to:
-                1. Most commonly reported adverse events and their prevalence
-                2. Severity and duration of adverse effects
-                3. Specific chemicals or device factors linked to adverse outcomes
-                4. Comparison of adverse events between different user groups and device types
-                5. Evidence strength for causal relationships
-                6. Clinical significance of reported adverse events"""
+            adverse_events_prompt = """As an R&D specialist analyzing e-cigarette research, focus exclusively on actionable data that identifies specific device factors, ingredients, or operating parameters linked to adverse events.
+                Avoid general statements about e-cigarette safety and instead extract precise technical information that can drive product improvements.
+                
+                Emphasize:
+                1. Exact chemical compounds/ingredients at specific concentrations causing adverse effects (e.g., "formaldehyde at >40 μg/puff when device exceeds 240°C")
+                2. Precise device characteristics (temperature, wattage, coil material) associated with reduced adverse events
+                3. Quantitative comparison data showing which design elements produce fewer adverse events (provide numerical values)
+                4. Specific causal pathways between device parameters and biological effects with measured values
+                5. Time-dependent adverse event profiles with specific usage patterns (duration, frequency, inhalation technique)
+                6. Particular e-liquid formulations showing reduced risk profiles with supporting measurements
+                
+                Include exact percentages, concentrations, and measurements whenever available."""
 
 
             # Define categories specific to adverse events
@@ -927,15 +934,19 @@ with tabs[2]:
         
         with col1:
             
-            perceived_benefits_prompt = """Focus on analyzing reported benefits of e-cigarette use with attention to objective measurements and subjective experiences.
-        
-                Pay special attention to:
-                1. Most commonly reported health improvements and their prevalence
-                2. Quality of life changes and their domains (physical, mental, social)
-                3. Comparison of benefits between different user groups and device types
-                4. Relative benefits compared to traditional cigarettes and other nicotine products
-                5. Temporal patterns in perceived benefits (immediate vs. long-term)
-                6. Correlation between user characteristics and reported benefits"""
+            perceived_benefits_prompt = """As an R&D specialist analyzing e-cigarette research, focus exclusively on specific, measurable benefits that can be directly linked to product characteristics.
+                Avoid general statements about user satisfaction and instead extract precise technical information that can enhance product appeal and efficacy.
+                
+                Emphasize:
+                1. Exact quantitative improvements in biomarkers or health indicators with specific device types/settings
+                2. Precise sensory attributes (with numerical ratings when available) linked to specific flavor compounds 
+                3. Detailed user satisfaction metrics correlated with particular product features (provide numerical ratings)
+                4. Specific nicotine delivery parameters that optimize satisfaction while minimizing side effects (exact values)
+                5. Particular device/e-liquid combinations showing superior user experience with supporting data
+                6. Quantitative data on specific product attributes that drive successful transition from combustible cigarettes
+                
+                Include exact percentages, preference ratings, and measured effects whenever available."""
+
 
 
             # Define categories specific to perceived benefits
@@ -1089,15 +1100,19 @@ with tabs[3]:
             
             # Content based on selected health area
             if st.session_state.selected_health_area == "oral":
-                oral_health_prompt = """Focus on analyzing the specific impacts of e-cigarettes on oral health with attention to clinical and self-reported outcomes.
-        
-                Pay special attention to:
-                1. Effects on periodontal health, tooth structure, and oral mucosa
-                2. Oral biomarkers and inflammatory responses
-                3. Comparison with traditional smoking's oral health impacts
-                4. Device and e-liquid factors that influence oral health outcomes
-                5. Time-dependent changes in oral health metrics
-                6. Clinical significance of observed oral health effects"""
+                oral_health_prompt = """As an R&D specialist analyzing e-cigarette research on oral health, focus exclusively on specific product parameters and ingredients that impact oral health outcomes.
+                    Avoid general statements about oral health impacts and instead extract precise technical information that can directly inform product formulation and design.
+                    
+                    Emphasize:
+                    1. Specific e-liquid ingredients and their measured effects on oral microbiome (with CFU counts or other metrics)
+                    2. Exact pH levels of various e-liquids and their impact on dental erosion (with numerical measurements)
+                    3. Precise temperature ranges associated with reduced oral irritation (with exact values)
+                    4. Particular flavoring compounds linked to improved or worsened oral health outcomes (with measured effects)
+                    5. Specific device design elements that minimize oral tissue exposure to harmful aerosols (with quantified reduction)
+                    6. Comparative data on oral biomarkers between specific product types/generations (with exact values)
+                    
+                    Include specific chemical names, concentrations, and measured biological responses whenever available."""
+
 
                 # Define categories specific to oral health
                 oral_health_categories = {
@@ -1149,15 +1164,19 @@ with tabs[3]:
                 
                 
             elif st.session_state.selected_health_area == "lung":
-                respiratory_prompt = """Focus on analyzing the specific impacts of e-cigarettes on respiratory health with attention to clinical outcomes, biomarkers, and patient experiences.
-            
-                Pay special attention to:
-                1. Impacts on lung function and respiratory symptoms
-                2. Specific respiratory conditions (asthma, COPD, wheezing)
-                3. Biomarkers of respiratory inflammation or damage
-                4. Comparison with traditional smoking's respiratory impacts
-                5. Device and e-liquid factors influencing respiratory outcomes
-                6. Time-dependent changes in respiratory health metrics"""
+                respiratory_prompt = """As an R&D specialist analyzing e-cigarette research on respiratory health, focus exclusively on specific product parameters and ingredients that impact respiratory health outcomes.
+                    Avoid general statements about respiratory health and instead extract precise technical information that can directly improve product safety profiles.
+                    
+                    Emphasize:
+                    1. Specific aerosol particle sizes from different device types and their measured deposition patterns
+                    2. Exact chemical compounds at specific concentrations linked to respiratory irritation
+                    3. Precise temperature/power settings associated with reduced respiratory effects (with numerical values)
+                    4. Particular e-liquid formulations showing improved respiratory safety profiles (with measured data)
+                    5. Specific device design elements that demonstrably filter or reduce harmful respiratory exposures
+                    6. Comparative respiratory biomarker data between specific product designs (with exact measurements)
+                    
+                    Include specific quantitative data on aerosol physics, chemical composition, and physiological responses whenever available."""
+
 
                 # Categories specific to respiratory health
                 respiratory_categories = {
@@ -1208,15 +1227,19 @@ with tabs[3]:
                 
                 
             elif st.session_state.selected_health_area == "heart":
-                cardiovascular_prompt = """Focus on analyzing the specific impacts of e-cigarettes on cardiovascular health with attention to clinical measurements and physiological effects.
-            
-                Pay special attention to:
-                1. Effects on heart rate, blood pressure, and vascular function
-                2. Cardiovascular biomarkers and inflammatory responses
-                3. Comparison with traditional smoking's cardiovascular impacts
-                4. Device features and chemical constituents affecting cardiovascular outcomes
-                5. Acute versus chronic cardiovascular effects
-                6. Cardiovascular risk assessment for different user populations"""
+                cardiovascular_prompt = """As an R&D specialist analyzing e-cigarette research on cardiovascular health, focus exclusively on specific product parameters and ingredients that impact cardiovascular health metrics.
+                    Avoid general statements about cardiovascular risks and instead extract precise technical information that can directly inform product design and formulation.
+                    
+                    Emphasize:
+                    1. Specific nicotine delivery patterns and their measured effects on heart rate/blood pressure (with exact values)
+                    2. Exact chemical constituents linked to vascular effects with their concentrations
+                    3. Precise operating parameters associated with minimized cardiovascular impact (with numerical data)
+                    4. Particular device design elements showing improved cardiovascular safety profiles
+                    5. Specific e-liquid formulations with measured reduced impact on endothelial function
+                    6. Comparative cardiac biomarker data between specific product types (with exact measurements)
+                    
+                    Include exact measurements, concentration ranges, and physiological response data whenever available."""
+
 
                 # Categories specific to cardiovascular health
                 cardiovascular_categories = {
@@ -1398,15 +1421,19 @@ with tabs[4]:
         
         with col1:
             
-            research_trends_prompt = """Focus on analyzing how e-cigarette research has evolved over time and identifying emerging areas of focus.
-        
-                Pay special attention to:
-                1. Shifts in research methodologies and study designs
-                2. Evolution of research questions and hypotheses over time
-                3. Emerging product trends and their research implications
-                4. Gaps in current research and suggested future directions
-                5. Geographic and institutional patterns in research focus
-                6. Changes in user behavior patterns over time"""
+            research_trends_prompt = """As an R&D specialist analyzing e-cigarette research trends, focus exclusively on emerging R&D directions and quantifiable product trends.
+                Avoid general statements about industry evolution and instead extract precise technical information that can inform product development strategy.
+                
+                Emphasize:
+                1. Specific next-generation device technologies with measured performance improvements
+                2. Exact new e-liquid formulations showing enhanced safety/satisfaction profiles (with data)
+                3. Precise shifting consumer preferences with numerical market data
+                4. Particular emerging testing methodologies that provide more accurate product assessment
+                5. Specific regulatory trends that will impact product development (with implementation timelines)
+                6. Quantifiable trends in competing products with exact market share or growth figures
+                
+                Include specific technical innovations, measurable market shifts, and emerging research methodologies whenever available."""
+
 
 
             # Define categories specific to research trends
@@ -1471,15 +1498,19 @@ with tabs[5]:
         
         with col1:
             
-            contradictions_prompt = """Focus on identifying and analyzing contradictory findings, methodological disagreements, and areas of scientific controversy.
-        
-                Pay special attention to:
-                1. Directly conflicting findings between studies
-                2. Methodological differences that may explain contradictions
-                3. Areas where evidence quality is particularly weak or inconsistent
-                4. Funding sources and potential conflicts of interest
-                5. Evolution of contradictions over time (resolving or intensifying)
-                6. Impact of study design on observed outcomes"""
+            contradictions_prompt = """As an R&D specialist analyzing conflicting e-cigarette research, focus exclusively on specific technical disagreements in the literature that impact product development decisions.
+                Avoid general statements about research limitations and instead extract precise information about conflicting findings relevant to product design.
+                
+                Emphasize:
+                1. Exact contradictory findings about specific ingredients/concentrations and their effects
+                2. Precise conflicting data about optimal operating parameters (temperature, wattage) with specific values
+                3. Particular methodological differences explaining contradictory safety assessments of specific components
+                4. Specific disagreements about aerosol chemistry under different conditions (with measurements)
+                5. Quantitative discrepancies in biomarker responses to particular product characteristics
+                6. Contradictory consumer preference data about specific product features (with numerical values)
+                
+                Include specific numerical data points from conflicting studies and identify potential reasons for discrepancies."""
+                
 
 
             # Define categories specific to contradictions and conflicts
@@ -1539,15 +1570,19 @@ with tabs[6]:
         
         with col1:
             
-            bias_prompt = """Focus on analyzing potential sources of bias in e-cigarette research and their impact on findings.
-        
-                Pay special attention to:
-                1. Patterns of funding influence on study outcomes
-                2. Selection bias in study populations
-                3. Measurement and reporting biases
-                4. Handling of confounding variables
-                5. Transparency in methods and conflicts disclosure
-                6. Overall quality assessment and methodological rigor"""
+            bias_prompt = """As an R&D specialist analyzing methodological issues in e-cigarette research, focus exclusively on methodological issues that could distort understanding of specific product characteristics.
+                Avoid general comments about research quality and instead extract precise information about testing and measurement methods relevant to product development.
+                
+                Emphasize:
+                1. Specific product testing protocols that produce particularly reliable/unreliable data
+                2. Exact measurement techniques for aerosol constituents with identified limitations/advantages
+                3. Particular study designs that provide the most actionable product development insights
+                4. Specific control variables that significantly impact assessment of product safety/satisfaction
+                5. Methodological best practices for evaluating specific aspects of e-cigarette performance
+                6. Measurement biases affecting evaluation of particular device features or e-liquid components
+                
+                Include specific analytical methods, instrument specifications, and experimental design considerations whenever available."""
+                
 
 
             # Define categories specific to bias in research
@@ -1607,15 +1642,18 @@ with tabs[7]:
         
         with col1:
             
-            publication_prompt = """Focus on analyzing publication patterns, citation impact, and research quality across e-cigarette literature.
-        
-                Pay special attention to:
-                1. Publication trends across journals and publication types
-                2. Geographic distribution of research
-                3. Methodological quality across publication sources
-                4. Relationship between publication metrics and funding sources
-                5. Evolution of publication volume and focus over time
-                6. Citation patterns and influential studies"""
+            publication_prompt = """As an R&D specialist analyzing e-cigarette research quality, focus exclusively on identifying the most credible and technically rigorous product research.
+                Avoid general assessment of publication patterns and instead extract precise information about the most reliable sources of technical product data.
+                
+                Emphasize:
+                1. Specific publications/research groups producing the most methodologically sound product assessments
+                2. Exact analytical methods that provide most reliable data on product characteristics
+                3. Particular study designs yielding most actionable product improvement insights
+                4. Specific technical expertise patterns across research institutions
+                5. Most rigorous comparative studies between product types with detailed methodologies
+                6. Cutting-edge analytical techniques being applied to product assessment
+                
+                Include specific research institutions, analytical methodologies, and citation metrics for the most technically reliable research."""
 
 
             # Define categories specific to publication level
