@@ -3,8 +3,12 @@ import pandas as pd
 from PIL import Image
 import requests
 
-from insights_utils import extract_research_insights_from_docs, generate_insights_with_gpt4o, display_insights
+from insights_utils import display_insights
 from visualization_utils import display_publication_distribution
+from visualization_utils import render_harmful_ingredients_visualization, render_perceived_benefits_visualization
+from visualization_utils import render_research_trends_visualization, render_contradictions_visualization
+from visualization_utils import render_bias_visualization, render_publication_level_visualization
+from visualization_utils import display_sankey_dropdown, display_main_category_sankey
 
 
 # Page config
@@ -741,44 +745,76 @@ with tabs[0]:
     if matching_docs:
         col1, col2 = st.columns([1, 1])
         
-        with col1:
-            
-            overview_prompt = """Focus on being specific, evidence-based, and highlighting both consensus and contradictions across studies.
-        
-                Pay special attention to:
-                1. Key conclusions and novel findings
-                2. Health outcomes and causal mechanisms 
-                3. R&D implications
-                4. Methodological strengths and limitations
-                5. Areas of consensus vs. areas of contradiction"""
+        overview_prompt = """Focus on being specific, evidence-based, and highlighting both consensus and contradictions across studies.
+    
+            Pay special attention to:
+            1. Key conclusions and novel findings
+            2. Health outcomes and causal mechanisms 
+            3. R&D implications
+            4. Methodological strengths and limitations
+            5. Areas of consensus vs. areas of contradiction"""
 
 
-            categories_to_extract = {
+        categories_to_extract = {
             "Key Findings": [
-                "main_conclusions", "primary_outcomes", "secondary_outcomes", 
-                "novel_findings", "limitations", "generalizability", 
-                "future_research_suggestions", "contradictions"
+                "main_conclusions", 
+                "statistical_summary.primary_outcomes", 
+                "statistical_summary.secondary_outcomes", 
+                "novel_findings", 
+                "limitations", 
+                "generalizability", 
+                "future_research_suggestions", 
+                "contradictions.conflicts_with_literature",
+                "contradictions.internal_contradictions"
             ],
             "Causal Mechanisms": [
-                "chemicals_implicated", "biological_pathways", 
-                "device_factors", "usage_pattern_factors"
+                "chemicals_implicated.name",
+                "chemicals_implicated.level_detected",
+                "chemicals_implicated.effects",
+                "chemicals_implicated.evidence_strength",
+                "biological_pathways.pathway",
+                "biological_pathways.description",
+                "device_factors.factor",
+                "device_factors.effects",
+                "usage_pattern_factors.pattern",
+                "usage_pattern_factors.effects"
             ],
             "R&D Insights": [
-                "harmful_ingredients", "device_design_implications", 
-                "comparative_benefits", "potential_innovation_areas",
-                "operating_parameters"
+                "harmful_ingredients.name",
+                "harmful_ingredients.health_impact",
+                "harmful_ingredients.comparison_to_cigarettes",
+                "device_design_implications.feature",
+                "device_design_implications.impact",
+                "comparative_benefits.vs_traditional_cigarettes.benefit",
+                "comparative_benefits.vs_traditional_cigarettes.evidence_strength",
+                "potential_innovation_areas.area",
+                "operating_parameters.temperature",
+                "operating_parameters.wattage"
             ],
             "Study Characteristics": [
-                "primary_type", "secondary_features", "time_periods",
-                "total_size", "user_groups", "e_cigarette_specifications",
-                "data_collection_method"
+                "study_design.primary_type",
+                "study_design.secondary_features",
+                "study_design.time_periods",
+                "sample_characteristics.total_size",
+                "sample_characteristics.user_groups",
+                "methodology.e_cigarette_specifications.device_types",
+                "methodology.e_cigarette_specifications.nicotine_content.concentrations",
+                "methodology.data_collection_method"
             ],
             "Health Outcomes": [
-                "respiratory_effects", "cardiovascular_effects", "oral_health",
-                "neurological_effects", "psychiatric_effects", "cancer_risk",
-                "developmental_effects", "other_health_outcomes"
-            ]
+                "respiratory_effects.findings.description",
+                "cardiovascular_effects.findings.description",
+                "oral_health.periodontal_health.description",
+                "oral_health.inflammatory_biomarkers.description",
+                "neurological_effects.description",
+                "psychiatric_effects.description",
+                "cancer_risk.description",
+                "other_health_outcomes.description"
+            ],
         }
+            
+        
+        with col1:
             
             display_insights(
                 df, 
@@ -789,18 +825,22 @@ with tabs[0]:
                 custom_focus_prompt=overview_prompt,
                 tab_index=0  # Add tab index
             )
+            
         
         with col2:
             # Use the imported function to display visualizations
             display_publication_distribution(df, matching_docs)
+            
+        display_sankey_dropdown(categories_to_extract, "Overview")
+        
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
         
-
+        
 # Tab 1 (Adverse Events)
 with tabs[1]:
     if matching_docs:
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns([0.85, 1])
         
         with col1:
             
@@ -818,22 +858,46 @@ with tabs[1]:
             # Define categories specific to adverse events
             adverse_events_categories = {
                 "Health Outcomes": [
-                    "respiratory_effects", "cardiovascular_effects", 
-                    "neurological_effects", "psychiatric_effects", 
-                    "other_health_outcomes"
+                    "respiratory_effects.measured_outcomes",
+                    "respiratory_effects.findings.description",
+                    "respiratory_effects.findings.comparative_results",
+                    "respiratory_effects.specific_conditions.asthma",
+                    "respiratory_effects.specific_conditions.copd",
+                    "respiratory_effects.lung_function_tests.results",
+                    "cardiovascular_effects.measured_outcomes",
+                    "cardiovascular_effects.findings.description",
+                    "cardiovascular_effects.blood_pressure",
+                    "cardiovascular_effects.heart_rate",
+                    "neurological_effects.specific_outcomes",
+                    "psychiatric_effects.specific_outcomes",
+                    "other_health_outcomes.description"
                 ],
                 "Self-Reported Effects": [
-                    "oral_events.sore_dry_mouth", "oral_events.cough", 
-                    "respiratory_events.breathing_difficulties", "respiratory_events.chest_pain",
-                    "neurological_events.headache", "neurological_events.dizziness",
-                    "cardiovascular_events.heart_palpitation", "total_adverse_events"
+                    "adverse_events.oral_events.sore_dry_mouth.overall_percentage",
+                    "adverse_events.oral_events.sore_dry_mouth.group_percentages",
+                    "adverse_events.oral_events.cough.overall_percentage",
+                    "adverse_events.oral_events.cough.group_percentages",
+                    "adverse_events.respiratory_events.breathing_difficulties.overall_percentage",
+                    "adverse_events.respiratory_events.chest_pain.overall_percentage",
+                    "adverse_events.neurological_events.headache.overall_percentage",
+                    "adverse_events.neurological_events.dizziness.overall_percentage",
+                    "adverse_events.cardiovascular_events.heart_palpitation.overall_percentage",
+                    "adverse_events.total_adverse_events.overall_percentage",
+                    "adverse_events.systemic_events"
                 ],
                 "Causal Mechanisms": [
-                    "chemicals_implicated", "biological_pathways",
-                    "device_factors", "usage_pattern_factors"
+                    "chemicals_implicated.name",
+                    "chemicals_implicated.effects",
+                    "chemicals_implicated.evidence_strength",
+                    "biological_pathways.pathway",
+                    "device_factors.factor",
+                    "device_factors.effects",
+                    "usage_pattern_factors.pattern"
                 ],
                 "Key Findings": [
-                    "main_conclusions", "limitations", "novel_findings"
+                    "main_conclusions",
+                    "limitations",
+                    "novel_findings"
                 ]
             }
             
@@ -848,7 +912,10 @@ with tabs[1]:
             )
             
         with col2:
-            st.info("Add visualizations for adverse events here")
+            render_harmful_ingredients_visualization(df, matching_docs)
+    
+        display_sankey_dropdown(adverse_events_categories, "Adverse Events", height = 400)
+        
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
@@ -856,7 +923,7 @@ with tabs[1]:
 # Tab 2 (Perceived Benefits)
 with tabs[2]:
     if matching_docs:
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns([1.5, 1])
         
         with col1:
             
@@ -874,26 +941,39 @@ with tabs[2]:
             # Define categories specific to perceived benefits
             perceived_benefits_categories = {
                 "Self-Reported Effects": [
-                    "perceived_health_improvements.sensory.smell", 
-                    "perceived_health_improvements.sensory.taste",
-                    "perceived_health_improvements.physical.breathing",
-                    "perceived_health_improvements.physical.physical_status",
-                    "perceived_health_improvements.physical.stamina",
-                    "perceived_health_improvements.mental.mood",
-                    "perceived_health_improvements.mental.sleep_quality",
-                    "perceived_health_improvements.quality_of_life"
+                    "perceived_health_improvements.sensory.smell.overall_percentage",
+                    "perceived_health_improvements.sensory.smell.group_percentages",
+                    "perceived_health_improvements.sensory.taste.overall_percentage",
+                    "perceived_health_improvements.sensory.taste.group_percentages",
+                    "perceived_health_improvements.sensory.other_sensory_improvements",
+                    "perceived_health_improvements.physical.breathing.overall_percentage",
+                    "perceived_health_improvements.physical.physical_status.overall_percentage",
+                    "perceived_health_improvements.physical.stamina.overall_percentage",
+                    "perceived_health_improvements.physical.other_physical_improvements",
+                    "perceived_health_improvements.mental.mood.overall_percentage",
+                    "perceived_health_improvements.mental.sleep_quality.overall_percentage",
+                    "perceived_health_improvements.quality_of_life.overall_qol",
+                    "perceived_health_improvements.quality_of_life.specific_domains"
                 ],
                 "Behavioral Patterns": [
                     "smoking_cessation.success_rates",
                     "smoking_cessation.comparison_to_other_methods",
-                    "reasons_for_use"
+                    "smoking_cessation.relapse_rates",
+                    "reasons_for_use.primary_reasons",
+                    "reasons_for_use.secondary_reasons",
+                    "reasons_for_use.demographic_differences"
                 ],
                 "R&D Insights": [
-                    "comparative_benefits",
-                    "consumer_experience_factors"
+                    "comparative_benefits.vs_traditional_cigarettes.benefit",
+                    "comparative_benefits.vs_traditional_cigarettes.magnitude",
+                    "comparative_benefits.vs_other_nicotine_products",
+                    "consumer_experience_factors.factor",
+                    "consumer_experience_factors.health_implication",
+                    "consumer_experience_factors.optimization_suggestion"
                 ],
                 "Key Findings": [
-                    "main_conclusions", "novel_findings"
+                    "main_conclusions",
+                    "novel_findings"
                 ]
             }
             
@@ -907,8 +987,11 @@ with tabs[2]:
                 tab_index=2  # Add tab index
             )
             
-        with col2:
-            st.info("Add visualizations for perceived benefits here")
+        # with col2:
+        #     render_perceived_benefits_visualization(df, matching_docs)
+
+        display_sankey_dropdown(perceived_benefits_categories, "Perceived Benefits", height=350)
+        
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
@@ -1019,21 +1102,32 @@ with tabs[3]:
                 # Define categories specific to oral health
                 oral_health_categories = {
                     "Health Outcomes": [
-                        "oral_health.periodontal_health", 
-                        "oral_health.caries_risk",
-                        "oral_health.oral_mucosal_changes",
-                        "oral_health.inflammatory_biomarkers",
-                        "oral_health.other_oral_effects"
+                        "oral_health.periodontal_health.description",
+                        "oral_health.periodontal_health.measurements",
+                        "oral_health.periodontal_health.significance",
+                        "oral_health.periodontal_health.comparison.effect",
+                        "oral_health.caries_risk.description",
+                        "oral_health.caries_risk.measurements",
+                        "oral_health.oral_mucosal_changes.description",
+                        "oral_health.oral_mucosal_changes.types_of_lesions",
+                        "oral_health.inflammatory_biomarkers.description",
+                        "oral_health.inflammatory_biomarkers.biomarkers_studied",
+                        "oral_health.other_oral_effects.description"
                     ],
                     "Self-Reported Effects": [
-                        "adverse_events.oral_events.sore_dry_mouth",
-                        "adverse_events.oral_events.mouth_tongue_sores",
-                        "adverse_events.oral_events.gingivitis",
-                        "adverse_events.oral_events.other_oral_events"
+                        "adverse_events.oral_events.sore_dry_mouth.overall_percentage",
+                        "adverse_events.oral_events.sore_dry_mouth.time_course",
+                        "adverse_events.oral_events.mouth_tongue_sores.overall_percentage",
+                        "adverse_events.oral_events.gingivitis.overall_percentage",
+                        "adverse_events.oral_events.other_oral_events.event",
+                        "adverse_events.oral_events.other_oral_events.percentage",
+                        "adverse_events.oral_events.cough.overall_percentage"
                     ],
                     "Causal Mechanisms": [
-                        "chemicals_implicated", 
-                        "biological_pathways"
+                        "chemicals_implicated.name",
+                        "chemicals_implicated.effects", 
+                        "biological_pathways.pathway",
+                        "biological_pathways.description"
                     ],
                     "Key Findings": [
                         "main_conclusions", 
@@ -1053,6 +1147,7 @@ with tabs[3]:
                     height=430
                 )
                 
+                
             elif st.session_state.selected_health_area == "lung":
                 respiratory_prompt = """Focus on analyzing the specific impacts of e-cigarettes on respiratory health with attention to clinical outcomes, biomarkers, and patient experiences.
             
@@ -1067,7 +1162,7 @@ with tabs[3]:
                 # Categories specific to respiratory health
                 respiratory_categories = {
                     "Health Outcomes": [
-                        "respiratory_effects.measured_outcomes", 
+                        "respiratory_effects.measured_outcomes",
                         "respiratory_effects.findings.description",
                         "respiratory_effects.findings.comparative_results",
                         "respiratory_effects.specific_conditions.asthma",
@@ -1079,14 +1174,19 @@ with tabs[3]:
                         "respiratory_effects.lung_function_tests.results"
                     ],
                     "Self-Reported Effects": [
-                        "adverse_events.respiratory_events.breathing_difficulties",
-                        "adverse_events.respiratory_events.chest_pain",
+                        "adverse_events.respiratory_events.breathing_difficulties.overall_percentage",
+                        "adverse_events.respiratory_events.breathing_difficulties.group_percentages",
+                        "adverse_events.respiratory_events.chest_pain.overall_percentage",
+                        "adverse_events.respiratory_events.chest_pain.group_percentages",
                         "adverse_events.respiratory_events.other_respiratory_events",
-                        "adverse_events.oral_events.cough"
+                        "adverse_events.oral_events.cough.overall_percentage",
+                        "adverse_events.oral_events.cough.time_course"
                     ],
                     "Causal Mechanisms": [
-                        "chemicals_implicated", 
-                        "biological_pathways"
+                        "chemicals_implicated.name",
+                        "chemicals_implicated.effects",
+                        "biological_pathways.pathway",
+                        "biological_pathways.description"
                     ],
                     "Key Findings": [
                         "main_conclusions", 
@@ -1106,6 +1206,7 @@ with tabs[3]:
                     height=430
                 )
                 
+                
             elif st.session_state.selected_health_area == "heart":
                 cardiovascular_prompt = """Focus on analyzing the specific impacts of e-cigarettes on cardiovascular health with attention to clinical measurements and physiological effects.
             
@@ -1120,7 +1221,7 @@ with tabs[3]:
                 # Categories specific to cardiovascular health
                 cardiovascular_categories = {
                     "Health Outcomes": [
-                        "cardiovascular_effects.measured_outcomes", 
+                        "cardiovascular_effects.measured_outcomes",
                         "cardiovascular_effects.findings.description",
                         "cardiovascular_effects.findings.comparative_results",
                         "cardiovascular_effects.blood_pressure",
@@ -1128,12 +1229,15 @@ with tabs[3]:
                         "cardiovascular_effects.biomarkers"
                     ],
                     "Self-Reported Effects": [
-                        "adverse_events.cardiovascular_events.heart_palpitation",
+                        "adverse_events.cardiovascular_events.heart_palpitation.overall_percentage",
+                        "adverse_events.cardiovascular_events.heart_palpitation.group_percentages",
                         "adverse_events.cardiovascular_events.other_cardiovascular_events"
                     ],
                     "Causal Mechanisms": [
-                        "chemicals_implicated", 
-                        "biological_pathways"
+                        "chemicals_implicated.name",
+                        "chemicals_implicated.effects",
+                        "biological_pathways.pathway",
+                        "biological_pathways.description"
                     ],
                     "Key Findings": [
                         "main_conclusions", 
@@ -1152,6 +1256,7 @@ with tabs[3]:
                     tab_index=3,
                     height=430
                 )
+                
         
         # Anatomy diagram with server-side controlled highlighting
         with col2:
@@ -1273,6 +1378,15 @@ with tabs[3]:
                 
             else:
                 st.error("Could not load the anatomy diagram.")
+                    
+        # Display sankey chart after both columns (outside col1 and col2)
+        if st.session_state.selected_health_area == "oral":
+            display_sankey_dropdown(oral_health_categories, "Oral Health", height=350, right='15%')
+        elif st.session_state.selected_health_area == "lung":
+            display_sankey_dropdown(respiratory_categories, "Respiratory Health", height=350, right='15%')
+        elif st.session_state.selected_health_area == "heart":
+            display_sankey_dropdown(cardiovascular_categories, "Cardiovascular Health", height=350, right='15%')
+            
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
         
@@ -1298,21 +1412,36 @@ with tabs[4]:
             # Define categories specific to research trends
             research_trends_categories = {
                 "Study Characteristics": [
-                    "primary_type", "secondary_features", 
-                    "time_periods", "data_collection_method"
+                    "study_design.primary_type",
+                    "study_design.secondary_features", 
+                    "study_design.time_periods",
+                    "methodology.data_collection_method",
+                    "methodology.e_cigarette_specifications.device_types",
+                    "methodology.e_cigarette_specifications.generation",
+                    "methodology.e_cigarette_specifications.nicotine_content.concentrations",
+                    "methodology.e_cigarette_specifications.e_liquid_types",
+                    "methodology.e_cigarette_specifications.flavors_studied"
                 ],
                 "Key Findings": [
-                    "future_research_suggestions", "novel_findings"
+                    "future_research_suggestions",
+                    "novel_findings"
                 ],
                 "Market Trends": [
                     "product_characteristics.device_evolution",
                     "product_characteristics.e_liquid_trends",
                     "product_characteristics.nicotine_concentration_trends",
-                    "regulatory_impacts"
+                    "product_characteristics.price_trends",
+                    "regulatory_impacts.regulation_effects",
+                    "regulatory_impacts.policy_recommendations"
                 ],
                 "Behavioral Patterns": [
-                    "usage_patterns.transitions",
-                    "product_preferences"
+                    "usage_patterns.transitions.description",
+                    "usage_patterns.transitions.from_smoking_to_vaping",
+                    "usage_patterns.transitions.from_vaping_to_smoking",
+                    "usage_patterns.transitions.dual_use_patterns",
+                    "product_preferences.device_preferences.most_popular_devices",
+                    "product_preferences.flavor_preferences.most_popular_flavors",
+                    "product_preferences.nicotine_preferences.most_common_concentrations"
                 ]
             }
             
@@ -1325,9 +1454,12 @@ with tabs[4]:
                 custom_focus_prompt=research_trends_prompt,
                 tab_index=4  # Add tab index
             )
-            
+                        
         with col2:
-            st.info("Add visualizations for research trends here")
+            render_research_trends_visualization(df, matching_docs)
+            
+        display_sankey_dropdown(research_trends_categories, "Research Trends", height=350)
+
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
@@ -1335,7 +1467,7 @@ with tabs[4]:
 # Tab 5 (Contradictions & Conflicts)
 with tabs[5]:
     if matching_docs:
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns([1.5, 1])
         
         with col1:
             
@@ -1359,16 +1491,24 @@ with tabs[5]:
                     "limitations"
                 ],
                 "Bias Assessment": [
-                    "conflicts_of_interest",
+                    "conflicts_of_interest.description",
+                    "conflicts_of_interest.industry_affiliations",
+                    "conflicts_of_interest.transparency",
                     "methodological_concerns",
                     "overall_quality_assessment"
                 ],
                 "Causal Mechanisms": [
+                    "chemicals_implicated.name",
                     "chemicals_implicated.evidence_strength",
+                    "biological_pathways.pathway",
                     "biological_pathways.evidence_strength"
                 ],
                 "R&D Insights": [
+                    "comparative_benefits.vs_traditional_cigarettes.benefit",
                     "comparative_benefits.vs_traditional_cigarettes.evidence_strength",
+                    "harmful_ingredients.name",
+                    "harmful_ingredients.health_impact",
+                    "harmful_ingredients.comparison_to_cigarettes",
                     "harmful_ingredients.evidence_strength"
                 ]
             }
@@ -1382,9 +1522,12 @@ with tabs[5]:
                 custom_focus_prompt=contradictions_prompt,
                 tab_index=5  # Add tab index
             )
-            
-        with col2:
-            st.info("Add visualizations for contradictions and conflicts here")
+                        
+        # with col2:
+            # render_contradictions_visualization(df, matching_docs)
+        
+        display_sankey_dropdown(contradictions_categories, "Contradictions & Conflicts", height=350)
+
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
@@ -1410,10 +1553,16 @@ with tabs[6]:
             # Define categories specific to bias in research
             bias_categories = {
                 "Bias Assessment": [
-                    "selection_bias", "measurement_bias",
-                    "confounding_factors", "attrition_bias",
-                    "reporting_bias", "conflicts_of_interest",
-                    "methodological_concerns", "overall_quality_assessment"
+                    "selection_bias",
+                    "measurement_bias",
+                    "confounding_factors",
+                    "attrition_bias",
+                    "reporting_bias",
+                    "conflicts_of_interest.description",
+                    "conflicts_of_interest.industry_affiliations",
+                    "conflicts_of_interest.transparency",
+                    "methodological_concerns",
+                    "overall_quality_assessment"
                 ],
                 "Meta Data": [
                     "funding_source.type",
@@ -1421,11 +1570,14 @@ with tabs[6]:
                     "funding_source.disclosure_statement"
                 ],
                 "Key Findings": [
-                    "limitations", "generalizability"
+                    "limitations",
+                    "generalizability"
                 ],
                 "Study Characteristics": [
                     "statistical_methods.adjustment_factors",
-                    "methodology.control_variables"
+                    "methodology.control_variables",
+                    "methodology.inclusion_criteria",
+                    "methodology.exclusion_criteria"
                 ]
             }
             
@@ -1438,9 +1590,12 @@ with tabs[6]:
                 custom_focus_prompt=bias_prompt,
                 tab_index=6  # Add tab index
             )
-            
+                        
         with col2:
-            st.info("Add visualizations for bias in research here")
+            render_bias_visualization(df, matching_docs)
+        
+        display_sankey_dropdown(bias_categories, "Bias in Research", height=350)
+    
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
 
@@ -1466,21 +1621,32 @@ with tabs[7]:
             # Define categories specific to publication level
             publication_categories = {
                 "Meta Data": [
-                    "publication_type", "journal",
-                    "citation_info", "publication_year",
-                    "country_of_study", "authors"
+                    "publication_type",
+                    "journal",
+                    "citation_info",
+                    "publication_year",
+                    "country_of_study",
+                    "authors",
+                    "funding_source.type",
+                    "funding_source.specific_entities"
                 ],
                 "Study Characteristics": [
                     "sample_characteristics.total_size",
-                    "study_design.primary_type"
+                    "study_design.primary_type",
+                    "study_design.secondary_features",
+                    "statistical_methods.primary_analyses",
+                    "statistical_methods.secondary_analyses"
                 ],
                 "Key Findings": [
                     "statistical_summary.primary_outcomes",
                     "statistical_summary.secondary_outcomes",
-                    "main_conclusions"
+                    "main_conclusions",
+                    "novel_findings"
                 ],
                 "Bias Assessment": [
-                    "overall_quality_assessment"
+                    "overall_quality_assessment",
+                    "conflicts_of_interest.description",
+                    "conflicts_of_interest.industry_affiliations"
                 ]
             }
             
@@ -1491,16 +1657,62 @@ with tabs[7]:
                 topic_name="Publication Metrics",
                 categories_to_extract=publication_categories,
                 custom_focus_prompt=publication_prompt,
-                tab_index=7  # Add tab index
+                tab_index=7,  # Add tab index
+                height=460
             )
             
         with col2:
-            st.info("Add visualizations for publication metrics here")
+            render_publication_level_visualization(df, matching_docs)
+    
+        display_sankey_dropdown(publication_categories, "Publication Level", height=350)
+
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
         
 
 st.write("")
+
+# Add a checkbox to show sankey chart for all categories
+if st.checkbox("Show E-Cigarette Research Data Structure"):
+    # Load the categories data from Excel file
+    @st.cache_data
+    def load_categories_data():
+        try:
+            # Use the same Excel file that's already being loaded
+            categories_df = pd.read_excel('E_Cigarette_Research_Metadata_Consolidated.xlsx')
+            # Take only the first 3 columns which contain Main Category, Category, and SubCategory
+            categories_df = categories_df[["Main Category", "Category", "SubCategory"]]
+            # Drop any rows where Main Category is NA
+            categories_df = categories_df.dropna(subset=["Main Category"])
+            
+            # Remove problematic main categories
+            problematic_categories = ['r_and_d_outcome']  # Add any other problematic categories here
+            categories_df = categories_df[~categories_df["Main Category"].str.lower().isin(problematic_categories)]
+        
+        
+            return categories_df
+        except Exception as e:
+            st.error(f"Error loading categories data: {e}")
+            return pd.DataFrame()
+    
+    categories_df = load_categories_data()
+    
+    if not categories_df.empty:
+        # Get unique main categories
+        main_categories = categories_df["Main Category"].unique().tolist()
+        
+        # Create a dropdown for selecting a main category
+        selected_main_category = st.selectbox(
+            "Select a Main Category to visualize",
+            options=main_categories
+        )
+        
+        if selected_main_category:
+            # Use the new function that directly displays the chart without a collapsible window
+            display_main_category_sankey(categories_df, selected_main_category, height=600)
+    else:
+        st.error("Could not load category data from the Excel file")
+        
 
 # Show document details for debugging
 if st.checkbox("Show Document Details"):
@@ -1508,6 +1720,6 @@ if st.checkbox("Show Document Details"):
     display_document_details(df, matching_docs)
 
 # Show raw data if needed
-if st.checkbox("Show Raw Data"):
+if st.checkbox("Show Sample Document Data"):
     from data_display_utils import display_raw_data
     display_raw_data(df)
