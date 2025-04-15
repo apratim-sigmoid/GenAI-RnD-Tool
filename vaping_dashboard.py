@@ -18,8 +18,6 @@ st.set_page_config(
     layout="wide"
 )
 
-if 'show_trending' not in st.session_state:
-    st.session_state.show_trending = True
     
 # Define the tab names for the progress tracking
 tab_names = ["Overview", "Adverse Events", "Perceived Benefits", "Health Outcomes", 
@@ -742,13 +740,6 @@ matching_docs = count_matching_documents(
 with st.sidebar:
     st.subheader(f"Total Documents: {len(matching_docs)}")
 
-# Add a toggle in the sidebar to show/hide trending section
-with st.sidebar:
-    st.checkbox("Show Trending Research", 
-                value=st.session_state.show_trending,
-                key="trending_toggle",
-                on_change=lambda: setattr(st.session_state, 'show_trending', st.session_state.trending_toggle))
-
 
 # Tabs
 tabs = st.tabs(["Overview", "Adverse Events", "Perceived Benefits", "Health Outcomes", "Research Trends", 
@@ -850,6 +841,10 @@ with tabs[0]:
             display_publication_distribution(df, matching_docs)
             
         display_sankey_dropdown(categories_to_extract, "Overview")
+        
+        # Display trending research in the Overview tab
+        st.markdown("---")
+        display_trending_research(df, df.columns[3:])
         
     else:
         st.warning("No documents match the selected filters. Please adjust your filter criteria.")
@@ -1777,7 +1772,3 @@ if st.checkbox("Show Sample Document Data"):
     display_raw_data(df)
     
     
-if st.session_state.show_trending:
-    st.markdown("---")
-    display_trending_research(df, df.columns[3:])
-    st.markdown("---")
