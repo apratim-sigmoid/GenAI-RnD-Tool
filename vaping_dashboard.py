@@ -257,7 +257,7 @@ except:
     st.write("Logo image not found.")
 
 # Title
-st.title("GenAI R&D Tool: E-Cigarette Research & Insights")
+st.title("IB NGP Harm Reduction Insights")
 
 # Initialize session state for filters if they don't exist
 if 'publication_type' not in st.session_state:
@@ -328,6 +328,10 @@ def on_enable_sample_size_change():
 
 # Add a sidebar with filters
 with st.sidebar:
+    
+    sidebar_logo = Image.open("Images/sigmoid-logo.png")
+    st.image(sidebar_logo, width=120) 
+        
     st.subheader("API Configuration")
     
     # Get OpenAI API key - in a production app, use st.secrets
