@@ -9,7 +9,7 @@ from visualization_utils import render_harmful_ingredients_visualization, render
 from visualization_utils import render_research_trends_visualization, render_contradictions_visualization
 from visualization_utils import render_bias_visualization, render_publication_level_visualization
 from visualization_utils import display_sankey_dropdown, display_main_category_sankey
-
+from trending_research import display_trending_research
 
 # Page config
 st.set_page_config(
@@ -18,7 +18,9 @@ st.set_page_config(
     layout="wide"
 )
 
-
+if 'show_trending' not in st.session_state:
+    st.session_state.show_trending = True
+    
 # Define the tab names for the progress tracking
 tab_names = ["Overview", "Adverse Events", "Perceived Benefits", "Health Outcomes", 
              "Research Trends", "Contradictions & Conflicts", "Bias in Research", "Publication Level"]                
@@ -735,6 +737,14 @@ matching_docs = count_matching_documents(
 # Display total number of documents selected in the sidebar
 with st.sidebar:
     st.subheader(f"Total Documents: {len(matching_docs)}")
+
+# Add a toggle in the sidebar to show/hide trending section
+with st.sidebar:
+    st.checkbox("Show Trending Research", 
+                value=st.session_state.show_trending,
+                key="trending_toggle",
+                on_change=lambda: setattr(st.session_state, 'show_trending', st.session_state.trending_toggle))
+
 
 # Tabs
 tabs = st.tabs(["Overview", "Adverse Events", "Perceived Benefits", "Health Outcomes", "Research Trends", 
@@ -1761,3 +1771,9 @@ if st.checkbox("Show Document Details"):
 if st.checkbox("Show Sample Document Data"):
     from data_display_utils import display_raw_data
     display_raw_data(df)
+    
+    
+if st.session_state.show_trending:
+    st.markdown("---")
+    display_trending_research(df, df.columns[3:])
+    st.markdown("---")
