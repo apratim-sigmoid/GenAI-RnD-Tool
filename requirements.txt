@@ -10,3 +10,4 @@ pyecharts
 folium
 streamlit-folium
 requests
+altair
