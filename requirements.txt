@@ -1,7 +1,7 @@
-streamlit==1.29.0
+streamlit==1.44.0
 pandas
 numpy
-plotly==5.14.1
+plotly==5.22.0
 pillow
 python-dateutil
 openai
