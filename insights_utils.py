@@ -154,7 +154,7 @@ def generate_insights_with_gpt4o(insights_data, api_key, topic_name="Research", 
         Please respond with only the bullet points, each starting with a '•' character.
         """
         
-        # Make API call to GPT-4o
+        # Make API call to GPT-4.1
         response = client.chat.completions.create(
             model="gpt-4.1",
             messages=[
@@ -398,9 +398,9 @@ def display_insights(df, matching_docs, section_title="Research Insights",
                         insights_html += f"<p>{insight}</p>"
                     
                     # Add token usage information at the bottom
-                    token_limit = 128000  # GPT-4o token limit
+                    token_limit = 1000000  # GPT-4.1 token limit
                     token_percentage = (token_usage["total_tokens"] / token_limit) * 100
-                    insights_html += f"<p style='font-size: 0.8em; color: #666; border-top: 1px solid #ddd; padding-top: 5px;'>Tokens used: {token_usage['total_tokens']} ({token_percentage:.2f}% of {token_limit} limit)</p>"
+                    insights_html += f"<p style='font-size: 0.8em; color: #666; border-top: 1px solid #ddd; padding-top: 5px;'>Tokens used: {token_usage['total_tokens']} ({token_percentage:.1f}% of 1 million token limit)</p>"
                     
                     insights_html += "</div>"
                     st.markdown(insights_html, unsafe_allow_html=True)
@@ -445,9 +445,9 @@ def display_insights(df, matching_docs, section_title="Research Insights",
             # Add token usage information at the bottom if available
             if token_usage_key in st.session_state:
                 token_usage = st.session_state[token_usage_key]
-                token_limit = 128000  # GPT-4o token limit
+                token_limit = 1000000  # GPT-4.1 token limit
                 token_percentage = (token_usage["total_tokens"] / token_limit) * 100
-                insights_html += f"<p style='font-size: 0.8em; color: #666; border-top: 1px solid #ddd; padding-top: 5px;'>Tokens used: {token_usage['total_tokens']} ({token_percentage:.1f}% of 128k limit)</p>"
+                insights_html += f"<p style='font-size: 0.8em; color: #666; border-top: 1px solid #ddd; padding-top: 5px;'>Tokens used: {token_usage['total_tokens']} ({token_percentage:.1f}% of 1 million token limit)</p>"
             
             insights_html += "</div>"
             st.markdown(insights_html, unsafe_allow_html=True)
