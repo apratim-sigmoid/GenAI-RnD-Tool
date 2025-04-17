@@ -280,7 +280,7 @@ def generate_comprehensive_paper_insights(df, doc, title, api_key):
         
         # Make API call to GPT-4o
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1",
             messages=[
                 {"role": "system", "content": "You are a meticulous R&D specialist focused on extracting precise, quantitative data from research to improve e-cigarette products. You provide only specific technical details, exact measurements, and actionable recommendations based on research data. You always clearly indicate what metrics and units are being used."},
                 {"role": "user", "content": prompt}
