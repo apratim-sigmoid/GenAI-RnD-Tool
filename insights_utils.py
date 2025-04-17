@@ -156,7 +156,7 @@ def generate_insights_with_gpt4o(insights_data, api_key, topic_name="Research", 
         
         # Make API call to GPT-4o
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1",
             messages=[
                 {"role": "system", "content": f"You are a helpful assistant that generates concise {topic_name.lower()} insights with simple bullet points. Never use nested bullet points. Always clearly indicate what metrics and units are being used."},
                 {"role": "user", "content": prompt}
